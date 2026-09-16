@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
-import { STORAGE_KEYS } from "./app_constants";
-import { LibraryIndexedDBAdapter } from "./data/LocalData";
+import { STORAGE_KEYS } from "../app_constants";
+import { LibraryIndexedDBAdapter } from "../data/LocalData";
+
+import type { EligibilitySignals } from "./types";
 
 /**
  * Day 15 eligibility check.
@@ -13,9 +15,12 @@ import { LibraryIndexedDBAdapter } from "./data/LocalData";
  *
  * isNewUser is `null` while the (async) library check is still in flight,
  * so callers can avoid flashing the prompt before we know the real answer.
+ * signals exposes the individual checks so a later diagnostic (e.g. Day
+ * 20's eligibility event) can record *why* a user was excluded.
  */
 export const useIsNewCanvasUser = () => {
   const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+  const [signals, setSignals] = useState<EligibilitySignals | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,6 +33,7 @@ export const useIsNewCanvasUser = () => {
       const hasLibraryItems = await hasNonEmptyLibrary();
 
       if (!cancelled) {
+        setSignals({ hasSavedElements, hasLibraryItems, hasSeenGuide });
         setIsNewUser(!hasSavedElements && !hasLibraryItems && !hasSeenGuide);
       }
     };
@@ -49,7 +55,7 @@ export const useIsNewCanvasUser = () => {
     setIsNewUser(false);
   };
 
-  return { isNewUser, markGuideSeen };
+  return { isNewUser, signals, markGuideSeen };
 };
 
 const hasNonEmptyLocalElements = (): boolean => {

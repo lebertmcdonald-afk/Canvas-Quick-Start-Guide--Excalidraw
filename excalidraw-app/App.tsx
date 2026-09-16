@@ -101,8 +101,8 @@ import Collab, {
 } from "./collab/Collab";
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
-import { QuickstartPromptPlaceholder } from "./components/QuickstartPromptPlaceholder";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
+import { QuickstartPromptPlaceholder } from "./quickstart/QuickstartPromptPlaceholder";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -134,7 +134,7 @@ import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
-import { useIsNewCanvasUser } from "./useIsNewCanvasUser";
+import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
