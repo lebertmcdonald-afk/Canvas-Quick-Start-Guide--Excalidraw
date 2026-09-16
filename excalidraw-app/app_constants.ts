@@ -48,6 +48,9 @@ export const STORAGE_KEYS = {
   IDB_LIBRARY: "excalidraw-library",
   IDB_TTD_CHATS: "excalidraw-ttd-chats",
 
+  // Day 15: has this browser already seen the new-user quickstart guide?
+  LOCAL_STORAGE_QUICKSTART_SEEN: "excalidraw-quickstart-seen",
+
   // do not use apart from migrations
   __LEGACY_LOCAL_STORAGE_LIBRARY: "excalidraw-library",
 } as const;
