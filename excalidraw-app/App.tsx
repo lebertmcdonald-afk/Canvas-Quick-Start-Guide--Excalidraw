@@ -102,7 +102,7 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
-import { QuickstartPromptPlaceholder } from "./quickstart/QuickstartPromptPlaceholder";
+import QuickstartGuide from "./quickstart/QuickstartGuide";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -135,6 +135,7 @@ import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
+import { trackQuickstartElements } from "./quickstart/quickstartTracker";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
@@ -381,7 +382,8 @@ const ExcalidrawWrapper = () => {
   const isCollabDisabled = isRunningInIframe();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
-  const { isNewUser: isNewCanvasUser } = useIsNewCanvasUser();
+  const { isNewUser: isNewCanvasUser, markGuideSeen: endQuickstartGuide } =
+    useIsNewCanvasUser();
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -720,6 +722,8 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
+    trackQuickstartElements(elements);
+
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
     }
@@ -1041,7 +1045,10 @@ const ExcalidrawWrapper = () => {
           onCollabDialogOpen={onCollabDialogOpen}
           isCollabEnabled={!isCollabDisabled}
         />
-        <QuickstartPromptPlaceholder isNewUser={isNewCanvasUser} />
+        <QuickstartGuide
+          isNewUser={isNewCanvasUser}
+          onEndGuide={endQuickstartGuide}
+        />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
           <OverwriteConfirmDialog.Actions.SaveToDisk />
