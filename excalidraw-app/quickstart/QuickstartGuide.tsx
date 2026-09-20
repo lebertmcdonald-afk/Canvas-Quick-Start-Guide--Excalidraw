@@ -64,6 +64,25 @@ const primaryButtonStyle: React.CSSProperties = {
   padding: "8px 14px",
 };
 
+/**
+ * The shape-tool hint's "highlight the shape tool" (PRD response table): a
+ * pulsing box-shadow on the toolbar's shape buttons, selected by their
+ * stable data-testids. Rendered as a <style> tag only while that hint is
+ * showing, so it leaves no trace once the guide moves on or ends -- and
+ * box-shadow can't shift layout or intercept pointer events on the tools.
+ */
+const SHAPE_TOOL_HIGHLIGHT_STYLES = `
+@keyframes quickstart-hint-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(105, 101, 219, 0.5); }
+}
+.excalidraw button[data-testid="toolbar-rectangle"],
+.excalidraw button[data-testid="toolbar-diamond"],
+.excalidraw button[data-testid="toolbar-ellipse"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
 export const QuickstartGuide: React.FC<{
   isVisible: boolean;
   optedIn: boolean;
@@ -81,10 +100,18 @@ export const QuickstartGuide: React.FC<{
         <span>
           Making your first diagram? Turn a process into a simple drawing.
         </span>
-        <button style={primaryButtonStyle} onClick={onOptIn}>
+        <button
+          style={primaryButtonStyle}
+          data-testid="quickstart-opt-in"
+          onClick={onOptIn}
+        >
           Help me get started
         </button>
-        <button style={primaryButtonStyle} onClick={onEndGuide}>
+        <button
+          style={buttonStyle}
+          data-testid="quickstart-decline"
+          onClick={onEndGuide}
+        >
           Keep drawing
         </button>
       </div>,
@@ -94,12 +121,24 @@ export const QuickstartGuide: React.FC<{
 
   if (activeHint === "shape-tool") {
     return createPortal(
-      <div data-testid="quickstart-hint-shape-tool" style={overlayStyle}>
-        <span>Pick a shape tool above, and draw your first shape.</span>
-        <button style={buttonStyle} onClick={onEndGuide}>
-          End guide
-        </button>
-      </div>,
+      <>
+        <style data-testid="quickstart-shape-tool-styles">
+          {SHAPE_TOOL_HIGHLIGHT_STYLES}
+        </style>
+        <div data-testid="quickstart-hint-shape-tool" style={overlayStyle}>
+          <span>
+            Pick a highlighted shape tool in the toolbar, then draw your first
+            shape.
+          </span>
+          <button
+            style={buttonStyle}
+            data-testid="quickstart-end-guide"
+            onClick={onEndGuide}
+          >
+            End guide
+          </button>
+        </div>
+      </>,
       document.body,
     );
   }

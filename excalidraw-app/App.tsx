@@ -722,7 +722,7 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    quickstart.notifyElementCount(elements.length);
+    quickstart.notifySceneChange(elements);
 
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);

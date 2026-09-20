@@ -1,14 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+
+import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { useAtom } from "../app-jotai";
 
+import { findFirstUserMark, hasUserMark, nextHint } from "./behavior";
 import {
   activeHintAtom,
   completedHintsAtom,
   guideEndedAtom,
   guideOptedInAtom,
 } from "./state";
-import { HINT_SEQUENCE } from "./types";
 
 /**
  * Day 16: drives the guide state atoms scaffolded on Day 15.
@@ -30,6 +32,11 @@ export const useQuickstartGuide = (
   const [activeHint, setActiveHint] = useAtom(activeHintAtom);
   const [completedHints, setCompletedHints] = useAtom(completedHintsAtom);
 
+  // Element ids on the canvas when scene detection last looked, while the
+  // guide is active. Null whenever it isn't, so users the guide doesn't
+  // apply to never pay for any of this.
+  const knownElementIdsRef = useRef<ReadonlySet<string> | null>(null);
+
   const isVisible = isNewUser === true && !ended;
 
   useEffect(() => {
@@ -39,12 +46,16 @@ export const useQuickstartGuide = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewUser]);
 
-  // Once opted in, the first hint in the chain goes active until
-  // completed. Day 16 only builds that first hint's content; Day 17/18
-  // extend this to advance through the rest of HINT_SEQUENCE.
+  // Once opted in, the next implemented, uncompleted hint goes active
+  // until finished. Day 16 only builds the first hint's content; later
+  // days add theirs to behavior.ts's IMPLEMENTED_HINTS and the chain
+  // starts advancing through them automatically.
   useEffect(() => {
-    if (optedIn && !ended && completedHints.length === 0 && !activeHint) {
-      setActiveHint(HINT_SEQUENCE[0]);
+    if (!activeHint && optedIn && !ended) {
+      const next = nextHint(completedHints);
+      if (next) {
+        setActiveHint(next);
+      }
     }
   }, [optedIn, ended, completedHints, activeHint, setActiveHint]);
 
@@ -54,30 +65,74 @@ export const useQuickstartGuide = (
   const endGuide = () => {
     setEnded(true);
     setActiveHint(null);
+    knownElementIdsRef.current = null;
+  };
+
+  const completeHint = (hintId: "shape-tool") => {
+    if (!completedHints.includes(hintId)) {
+      const nextCompleted = [...completedHints, hintId];
+      setCompletedHints(nextCompleted);
+      setActiveHint(nextHint(nextCompleted));
+    }
   };
 
   /**
-   * Called on every scene change. Two jobs:
+   * Called on every scene change, wired into the existing onChange handler,
+   * so it only observes drawing after Excalidraw has applied it -- it can't
+   * introduce delay or gate the canvas. Three jobs:
+   *  - users the guide doesn't apply to (or who ended it): clear the
+   *    baseline and get out immediately (the P0 exit check both days
+   *    protect).
    *  - if the user never opted in and just starts drawing on their own,
    *    the prompt gets out of the way on that first interaction (PRD P1).
-   *  - if the active hint is the one the user just satisfied by drawing,
-   *    it disappears on its own rather than needing a manual dismiss.
+   *  - if the active hint is one the user just satisfied by authoring a
+   *    mark themselves, it completes and disappears on its own, never
+   *    repeating. Completion is mark-based (behavior.ts), so imports and
+   *    other non-authored content don't count (PRD §3).
    */
-  const notifyElementCount = (elementCount: number) => {
-    if (elementCount === 0) {
+  const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
+    if (!isNewUser || ended) {
+      knownElementIdsRef.current = null;
       return;
     }
+
     if (!optedIn) {
-      endGuide();
+      if (elements.length > 0) {
+        endGuide();
+      }
       return;
     }
-    if (activeHint === HINT_SEQUENCE[0]) {
-      setCompletedHints((prev) =>
-        prev.includes(activeHint) ? prev : [...prev, activeHint],
+
+    const shapeHintPending =
+      activeHint === "shape-tool" && !completedHints.includes("shape-tool");
+
+    if (knownElementIdsRef.current === null) {
+      // First change since detection started: what's already on the canvas
+      // predates the guide, so it baselines instead of counting as new --
+      // unless it already includes an authored mark, which satisfies the
+      // hint outright (no point teaching a finished step).
+      knownElementIdsRef.current = new Set(
+        elements.map((element) => element.id),
       );
-      setActiveHint(null);
+      if (shapeHintPending && hasUserMark(elements)) {
+        completeHint("shape-tool");
+      }
+      return;
+    }
+
+    const createdMark = findFirstUserMark(knownElementIdsRef.current, elements);
+    knownElementIdsRef.current = new Set(elements.map((element) => element.id));
+    if (shapeHintPending && createdMark) {
+      completeHint("shape-tool");
     }
   };
 
-  return { isVisible, optedIn, activeHint, optIn, endGuide, notifyElementCount };
+  return {
+    isVisible,
+    optedIn,
+    activeHint,
+    optIn,
+    endGuide,
+    notifySceneChange,
+  };
 };
