@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   renderHook,
+  waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -119,6 +120,10 @@ describe("quickstart guide UI", () => {
   it("the prompt offers opt-in and decline, both working", () => {
     const { onOptIn, onEndGuide } = renderUi({ optedIn: false });
     expect(document.body).toHaveTextContent("Making your first diagram?");
+    // the hover/border styling for the buttons mounts with the prompt
+    expect(
+      document.querySelector('[data-testid="quickstart-button-styles"]'),
+    ).not.toBe(null);
 
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-opt-in"]')!,
@@ -140,6 +145,9 @@ describe("quickstart guide UI", () => {
     expect(
       document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
     ).not.toBe(null);
+    expect(
+      document.querySelector('[data-testid="quickstart-button-styles"]'),
+    ).not.toBe(null);
 
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-end-guide"]')!,
@@ -153,6 +161,48 @@ describe("quickstart guide UI", () => {
       document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
     ).toBe(null);
     expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
+  });
+
+  it("shifts the card below the welcome toolbar tooltip while it's visible", async () => {
+    const excalidrawRoot = document.createElement("div");
+    excalidrawRoot.className = "excalidraw";
+    const tooltip = document.createElement("div");
+    tooltip.className = "welcome-screen-decor-hint--toolbar";
+    tooltip.getBoundingClientRect = () =>
+      ({ top: 90, bottom: 150, height: 60 } as unknown as DOMRect);
+    excalidrawRoot.appendChild(tooltip);
+    document.body.appendChild(excalidrawRoot);
+
+    renderUi({ optedIn: false });
+    const prompt = () =>
+      document.querySelector<HTMLDivElement>(
+        '[data-testid="quickstart-prompt"]',
+      )!;
+    await waitFor(() => expect(prompt().style.top).toBe("158px"));
+
+    // once the user draws, the welcome screen (and its tooltip) unmounts
+    // and the card returns to its default spot
+    excalidrawRoot.remove();
+    await waitFor(() => expect(prompt().style.top).toBe("76px"));
+  });
+
+  it("a media-query-hidden tooltip reads as absent", async () => {
+    const excalidrawRoot = document.createElement("div");
+    excalidrawRoot.className = "excalidraw";
+    const tooltip = document.createElement("div");
+    tooltip.className = "welcome-screen-decor-hint--toolbar";
+    // display:none elements report an all-zero rect
+    tooltip.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 0, height: 0 } as unknown as DOMRect);
+    excalidrawRoot.appendChild(tooltip);
+    document.body.appendChild(excalidrawRoot);
+
+    renderUi({ optedIn: false });
+    const prompt = () =>
+      document.querySelector<HTMLDivElement>(
+        '[data-testid="quickstart-prompt"]',
+      )!;
+    await waitFor(() => expect(prompt().style.top).toBe("76px"));
   });
 });
 
