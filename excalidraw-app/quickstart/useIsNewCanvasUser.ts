@@ -45,6 +45,13 @@ export const useIsNewCanvasUser = () => {
     };
   }, []);
 
+  /**
+   * Persists the "has seen the guide" flag for *future* sessions. This
+   * intentionally does not touch isNewUser: the flag means "shown before,"
+   * not "done with" -- it's called once the guide is exposed, and the
+   * current session's guide visibility is controlled by the opt-in/end-guide
+   * flow (see useQuickstartGuide), not by re-deriving eligibility mid-session.
+   */
   const markGuideSeen = () => {
     try {
       localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_QUICKSTART_SEEN, "true");
@@ -52,7 +59,6 @@ export const useIsNewCanvasUser = () => {
       // Unable to access localStorage
       console.error(error);
     }
-    setIsNewUser(false);
   };
 
   return { isNewUser, signals, markGuideSeen };

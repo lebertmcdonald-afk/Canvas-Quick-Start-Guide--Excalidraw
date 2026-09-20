@@ -102,7 +102,7 @@ import Collab, {
 import { AppFooter } from "./components/AppFooter";
 import { AppMainMenu } from "./components/AppMainMenu";
 import { AppWelcomeScreen } from "./components/AppWelcomeScreen";
-import QuickstartGuide from "./quickstart/QuickstartGuide";
+import { QuickstartGuide } from "./quickstart/QuickstartGuide";
 import {
   ExportToExcalidrawPlus,
   exportToExcalidrawPlus,
@@ -135,7 +135,7 @@ import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
-import { trackQuickstartElements } from "./quickstart/quickstartTracker";
+import { useQuickstartGuide } from "./quickstart/useQuickstartGuide";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
@@ -382,8 +382,8 @@ const ExcalidrawWrapper = () => {
   const isCollabDisabled = isRunningInIframe();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
-  const { isNewUser: isNewCanvasUser, markGuideSeen: endQuickstartGuide } =
-    useIsNewCanvasUser();
+  const { isNewUser: isNewCanvasUser, markGuideSeen } = useIsNewCanvasUser();
+  const quickstart = useQuickstartGuide(isNewCanvasUser, markGuideSeen);
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -722,7 +722,7 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    trackQuickstartElements(elements);
+    quickstart.notifySceneChange(elements);
 
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
@@ -1046,8 +1046,11 @@ const ExcalidrawWrapper = () => {
           isCollabEnabled={!isCollabDisabled}
         />
         <QuickstartGuide
-          isNewUser={isNewCanvasUser}
-          onEndGuide={endQuickstartGuide}
+          isVisible={quickstart.isVisible}
+          optedIn={quickstart.optedIn}
+          activeHint={quickstart.activeHint}
+          onOptIn={quickstart.optIn}
+          onEndGuide={quickstart.endGuide}
         />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />

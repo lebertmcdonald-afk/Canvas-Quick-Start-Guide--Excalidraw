@@ -1,28 +1,26 @@
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
-import { Provider, appJotaiStore } from "../app-jotai";
-import QuickstartGuide from "../quickstart/QuickstartGuide";
+import { appJotaiStore, Provider } from "../app-jotai";
 import { findFirstUserMark, nextHint } from "../quickstart/behavior";
-import { trackQuickstartElements } from "../quickstart/quickstartTracker";
+import { QuickstartGuide } from "../quickstart/QuickstartGuide";
 import {
   activeHintAtom,
   completedHintsAtom,
   guideEndedAtom,
   guideOptedInAtom,
 } from "../quickstart/state";
+import { useQuickstartGuide } from "../quickstart/useQuickstartGuide";
 
-const renderGuide = (isNewUser: boolean | null) => {
-  const onEndGuide = vi.fn();
-  render(
-    <Provider store={appJotaiStore}>
-      <QuickstartGuide isNewUser={isNewUser} onEndGuide={onEndGuide} />
-    </Provider>,
-  );
-  return onEndGuide;
-};
+import type { ReactNode } from "react";
 
 const makeElement = (
   id: string,
@@ -37,9 +35,27 @@ const resetGuideState = () => {
   appJotaiStore.set(guideEndedAtom, false);
 };
 
-const optInWithShapeHint = () => {
-  appJotaiStore.set(guideOptedInAtom, true);
-  appJotaiStore.set(activeHintAtom, "shape-tool");
+const renderGuideHook = (isNewUser: boolean | null) => {
+  const markGuideSeen = vi.fn();
+  // the hook's atoms live in appJotaiStore in the real app (App.tsx's
+  // <Provider>), so the tests must mount the same store, not jotai's
+  // default one
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <Provider store={appJotaiStore}>{children}</Provider>
+  );
+  const { result } = renderHook(
+    () => useQuickstartGuide(isNewUser, markGuideSeen),
+    { wrapper },
+  );
+  return { result, markGuideSeen };
+};
+
+const optInAndShowShapeHint = (result: {
+  current: ReturnType<typeof useQuickstartGuide>;
+}) => {
+  act(() => result.current.optIn());
+  // the auto-activation effect fires within act(); assert to be sure
+  expect(result.current.activeHint).toBe("shape-tool");
 };
 
 describe("quickstart behavior logic", () => {
@@ -72,140 +88,150 @@ describe("quickstart behavior logic", () => {
 
 describe("quickstart guide UI", () => {
   beforeEach(() => {
-    resetGuideState();
     cleanup();
     document.body.innerHTML = "";
   });
 
-  it("renders nothing for a non-new user or while eligibility is pending", () => {
-    const onEnd = renderGuide(true);
+  const renderUi = (props: {
+    isVisible?: boolean;
+    optedIn?: boolean;
+    activeHint?: "shape-tool" | null;
+  }) => {
+    const onOptIn = vi.fn();
+    const onEndGuide = vi.fn();
+    render(
+      <QuickstartGuide
+        isVisible={props.isVisible ?? true}
+        optedIn={props.optedIn ?? false}
+        activeHint={props.activeHint ?? null}
+        onOptIn={onOptIn}
+        onEndGuide={onEndGuide}
+      />,
+    );
+    return { onOptIn, onEndGuide };
+  };
+
+  it("renders nothing when the guide isn't visible", () => {
+    renderUi({ isVisible: false, optedIn: true, activeHint: "shape-tool" });
+    expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
+  });
+
+  it("the prompt offers opt-in and decline, both working", () => {
+    const { onOptIn, onEndGuide } = renderUi({ optedIn: false });
     expect(document.body).toHaveTextContent("Making your first diagram?");
-    expect(onEnd).not.toHaveBeenCalled();
-    cleanup();
-
-    renderGuide(false);
-    expect(document.querySelector('[data-testid="quickstart-prompt"]')).toBe(
-      null,
-    );
-    cleanup();
-
-    renderGuide(null);
-    expect(document.querySelector('[data-testid="quickstart-prompt"]')).toBe(
-      null,
-    );
-  });
-
-  it("opting in swaps the prompt for the shape-tool hint and its highlight", () => {
-    renderGuide(true);
-
-    // before opt-in: prompt visible, no highlight stylesheet
-    expect(
-      document.querySelector('[data-testid="quickstart-hint-shape-tool"]'),
-    ).toBe(null);
-    expect(
-      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
-    ).toBe(null);
 
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-opt-in"]')!,
     );
+    expect(onOptIn).toHaveBeenCalledTimes(1);
 
-    expect(document.querySelector('[data-testid="quickstart-prompt"]')).toBe(
-      null,
-    );
-    expect(
-      document.querySelector('[data-testid="quickstart-hint-shape-tool"]'),
-    ).not.toBe(null);
-    expect(document.body).toHaveTextContent("Draw your first shape");
-    expect(
-      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
-    ).not.toBe(null);
-  });
-
-  it("the end-guide control on the hint ends the guide and reports it", () => {
-    const onEnd = renderGuide(true);
-    fireEvent.click(
-      document.querySelector('[data-testid="quickstart-opt-in"]')!,
-    );
-    fireEvent.click(
-      document.querySelector('[data-testid="quickstart-end-guide"]')!,
-    );
-
-    expect(document.querySelector('[data-testid="quickstart-prompt"]')).toBe(
-      null,
-    );
-    expect(
-      document.querySelector('[data-testid="quickstart-hint-shape-tool"]'),
-    ).toBe(null);
-    expect(
-      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
-    ).toBe(null);
-    expect(appJotaiStore.get(guideEndedAtom)).toBe(true);
-    expect(onEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("declining the prompt ends the guide too", () => {
-    const onEnd = renderGuide(true);
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-decline"]')!,
     );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
 
-    expect(appJotaiStore.get(guideEndedAtom)).toBe(true);
-    expect(onEnd).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[data-testid="quickstart-prompt"]')).toBe(
-      null,
+  it("the shape-tool hint shows the toolbar highlight and an explicit end control", () => {
+    const { onEndGuide } = renderUi({
+      optedIn: true,
+      activeHint: "shape-tool",
+    });
+    expect(document.body).toHaveTextContent("draw your first shape");
+    expect(
+      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).not.toBe(null);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="quickstart-end-guide"]')!,
     );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("no highlight stylesheet outside the shape-tool hint", () => {
+    renderUi({ optedIn: true, activeHint: null });
+    expect(
+      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).toBe(null);
+    expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
   });
 });
 
-describe("quickstart shape detection (Day 16 mainline)", () => {
+describe("quickstart guide behavior (useQuickstartGuide)", () => {
   beforeEach(() => {
     resetGuideState();
-    optInWithShapeHint();
+    cleanup();
   });
 
-  it("the user creating a shape completes the hint on its own, once", () => {
-    trackQuickstartElements([]); // baseline on first change after opt-in
+  it("exposure persists the seen flag exactly once for a new user only", () => {
+    const { markGuideSeen } = renderGuideHook(true);
+    expect(markGuideSeen).toHaveBeenCalledTimes(1);
 
-    trackQuickstartElements([makeElement("el1", "rectangle")]);
+    cleanup();
+    const notNew = renderGuideHook(false);
+    expect(notNew.markGuideSeen).not.toHaveBeenCalled();
+  });
+
+  it("the user authoring a shape completes the hint on its own, once", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+
+    act(() => result.current.notifySceneChange([])); // baseline
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(appJotaiStore.get(activeHintAtom)).toBeNull();
+    expect(result.current.activeHint).toBeNull();
 
     // a second shape must not resurrect or duplicate anything
-    trackQuickstartElements([
-      makeElement("el1", "rectangle"),
-      makeElement("el2", "ellipse"),
-    ]);
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+      ]),
+    );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(appJotaiStore.get(activeHintAtom)).toBeNull();
+    expect(result.current.activeHint).toBeNull();
   });
 
-  it("content that predates opting in and isn't a user mark is baseline, not a completion", () => {
-    resetGuideState();
-    // user ignored the prompt and an image landed on canvas, then opted in
-    trackQuickstartElements([makeElement("old", "image")]);
-    optInWithShapeHint();
+  it("content that isn't a user mark doesn't complete the hint; a real mark does", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
 
-    // the import still being there completes nothing...
-    trackQuickstartElements([makeElement("old", "image")]);
+    act(() => result.current.notifySceneChange([])); // baseline
+    act(() => result.current.notifySceneChange([makeElement("img", "image")]));
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
 
-    // ...but a genuinely new user mark does
-    trackQuickstartElements([
-      makeElement("old", "image"),
-      makeElement("new", "rectangle"),
-    ]);
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("img", "image"),
+        makeElement("el1", "rectangle"),
+      ]),
+    );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
   });
 
-  it("an already-drawn canvas satisfies the hint outright at opt-in", () => {
-    resetGuideState();
-    trackQuickstartElements([makeElement("old", "rectangle")]);
-    optInWithShapeHint();
+  it("a user who never opted in sees the prompt clear on their first content (PRD P1)", () => {
+    const { result } = renderGuideHook(true);
+    expect(result.current.isVisible).toBe(true);
 
-    // first change after activation sees the finished mark and completes
-    trackQuickstartElements([makeElement("old", "rectangle")]);
-    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    act(() => result.current.notifySceneChange([makeElement("el1", "image")]));
+    expect(appJotaiStore.get(guideEndedAtom)).toBe(true);
+    expect(result.current.isVisible).toBe(false);
+    expect(result.current.activeHint).toBeNull();
+  });
+
+  it("ending the guide suppresses all further detection", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+
+    act(() => result.current.endGuide());
+    act(() => result.current.notifySceneChange([]));
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+    expect(result.current.activeHint).toBeNull();
   });
 });
 
@@ -216,33 +242,42 @@ describe("Day 15/16 P0 exit check: no side effects for non-participants", () => 
     document.body.innerHTML = "";
   });
 
-  it("a user who never opted in: onChange tracking leaves all guide state untouched", () => {
-    trackQuickstartElements([]);
-    trackQuickstartElements([makeElement("el1", "rectangle")]);
-    trackQuickstartElements([
-      makeElement("el1", "rectangle"),
-      makeElement("el2", "text"),
-    ]);
+  it("a non-new user: scene changes leave all guide state untouched and persist nothing", () => {
+    const { result, markGuideSeen } = renderGuideHook(false);
+
+    act(() => result.current.notifySceneChange([]));
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "text"),
+      ]),
+    );
 
     expect(appJotaiStore.get(guideOptedInAtom)).toBe(false);
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
     expect(appJotaiStore.get(activeHintAtom)).toBeNull();
     expect(appJotaiStore.get(guideEndedAtom)).toBe(false);
+    expect(markGuideSeen).not.toHaveBeenCalled();
+    expect(result.current.isVisible).toBe(false);
   });
 
-  it("after ending the guide, further changes complete nothing", () => {
-    optInWithShapeHint();
-    appJotaiStore.set(guideEndedAtom, true);
-
-    trackQuickstartElements([]);
-    trackQuickstartElements([makeElement("el1", "rectangle")]);
-
-    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
-  });
-
-  it("the guide UI mounts no DOM and no stylesheet for a non-new user", () => {
-    renderGuide(false);
-    trackQuickstartElements([makeElement("el1", "rectangle")]);
+  it("the guide UI mounts no DOM for a user the guide doesn't apply to", () => {
+    const { result } = renderGuideHook(false);
+    render(
+      <QuickstartGuide
+        isVisible={result.current.isVisible}
+        optedIn={result.current.optedIn}
+        activeHint={result.current.activeHint}
+        onOptIn={result.current.optIn}
+        onEndGuide={result.current.endGuide}
+      />,
+    );
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
 
     expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
   });

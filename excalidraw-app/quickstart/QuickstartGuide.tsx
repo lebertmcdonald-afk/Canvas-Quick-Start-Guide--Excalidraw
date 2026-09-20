@@ -1,203 +1,76 @@
 import React from "react";
 import { createPortal } from "react-dom";
 
-import { appJotaiStore, useAtomValue, useSetAtom } from "../app-jotai";
-
-import { nextHint } from "./behavior";
-import {
-  activeHintAtom,
-  completedHintsAtom,
-  guideEndedAtom,
-  guideOptedInAtom,
-} from "./state";
-
 import type { HintId } from "./types";
 
 /**
- * Day 16: the real prompt and first hint.
+ * Day 16: real content and interactivity, replacing Day 15's inert
+ * placeholder. Still visually rough on purpose (Day 19 is polish day) --
+ * this is about the interaction being real, not about how it looks.
  *
- * Rendered via a portal to document.body (not inline) because this component
- * is passed as a child of <Excalidraw>, which nests children inside the
- * `.excalidraw` root -- a box with `overflow: hidden` that traps absolutely
- * positioned descendants. See the Day 15 fix commit for the full story.
- *
- * Everything -- prompt, hint, styling -- mounts only for an eligible new user
- * who hasn't ended the guide, so there is nothing to intercept, delay, or
- * render for anyone else (the P0 exit check both days protect).
+ * Rendered via a portal to document.body for the same reason as Day 15's
+ * placeholder: <Excalidraw>'s children render deep inside a tunneled,
+ * overflow: hidden ancestor, which breaks position: fixed.
  */
 
-const HintBody: React.FC<{ hintId: HintId }> = ({ hintId }) => {
-  if (hintId !== "shape-tool") {
-    // Only the first hint is implemented (Day 16). Later days add theirs.
-    return null;
-  }
-  return (
-    <>
-      <div className="quickstart-card__title">Draw your first shape</div>
-      <div className="quickstart-card__body">
-        Pick a shape tool on the left toolbar — it's highlighted — then drag on
-        the canvas to draw one.
-      </div>
-    </>
-  );
+// Matches the app's own --ui-font / --border-radius-lg / --shadow-island
+// tokens (packages/excalidraw/css/theme.scss). Literal values rather than
+// var(...) references: those custom properties are scoped to .excalidraw,
+// and this renders via a portal to document.body, outside that element,
+// so the variables wouldn't resolve there.
+const UI_FONT =
+  'Assistant, system-ui, BlinkMacSystemFont, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+const ISLAND_SHADOW =
+  "0px 0px 1px 0px rgba(0, 0, 0, 0.17), 0px 0px 3px 0px rgba(0, 0, 0, 0.08), 0px 7px 14px 0px rgba(0, 0, 0, 0.05)";
+
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  // Below the toolbar, not on top of it -- top: 8 used to sit right over
+  // the toolbar icons, which is especially bad for the shape-tool hint:
+  // it was covering the exact tool it was telling you to click.
+  top: 76,
+  left: "50%",
+  transform: "translateX(-50%)",
+  zIndex: 10,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "6px 10px",
+  background: "#ffffff",
+  borderRadius: "0.5rem",
+  boxShadow: ISLAND_SHADOW,
+  fontFamily: UI_FONT,
+  fontSize: 13,
 };
 
-const QuickstartGuide: React.FC<{
-  isNewUser: boolean | null;
-  onEndGuide: () => void;
-}> = ({ isNewUser, onEndGuide }) => {
-  const optedIn = useAtomValue(guideOptedInAtom);
-  const activeHint = useAtomValue(activeHintAtom);
-  const ended = useAtomValue(guideEndedAtom);
+// <button> elements don't inherit font-family from an ancestor by default
+// (browser UA stylesheets set their own), so it has to be applied directly.
+const buttonStyle: React.CSSProperties = {
+  fontFamily: UI_FONT,
+  borderRadius: "0.375rem",
+  padding: "6px 10px",
+  cursor: "pointer",
+};
 
-  const setOptedIn = useSetAtom(guideOptedInAtom);
-  const setActiveHint = useSetAtom(activeHintAtom);
-  const setEnded = useSetAtom(guideEndedAtom);
-
-  if (!isNewUser || ended) {
-    return null;
-  }
-
-  const optIn = () => {
-    setOptedIn(true);
-    setActiveHint(nextHint(appJotaiStore.get(completedHintsAtom)));
-  };
-
-  const endGuide = () => {
-    setEnded(true);
-    onEndGuide();
-  };
-
-  return createPortal(
-    <>
-      <style data-testid="quickstart-card-styles">{CARD_STYLES}</style>
-      {activeHint === "shape-tool" && (
-        <style data-testid="quickstart-shape-tool-styles">
-          {SHAPE_TOOL_HIGHLIGHT_STYLES}
-        </style>
-      )}
-      {optedIn ? (
-        activeHint && (
-          <div
-            className="quickstart-card"
-            data-testid={`quickstart-hint-${activeHint}`}
-            role="status"
-          >
-            <HintBody hintId={activeHint} />
-            <button
-              className="quickstart-card__end"
-              data-testid="quickstart-end-guide"
-              onClick={endGuide}
-            >
-              End guide
-            </button>
-          </div>
-        )
-      ) : (
-        <div className="quickstart-card" data-testid="quickstart-prompt">
-          <div className="quickstart-card__title">
-            Making your first diagram?
-          </div>
-          <div className="quickstart-card__body">
-            Turn a process into a simple drawing. We'll give you one hint at a
-            time and stay out of the way.
-          </div>
-          <div className="quickstart-card__actions">
-            <button
-              className="quickstart-card__primary"
-              data-testid="quickstart-opt-in"
-              onClick={optIn}
-            >
-              Help me get started
-            </button>
-            <button
-              className="quickstart-card__end"
-              data-testid="quickstart-decline"
-              onClick={endGuide}
-            >
-              Keep drawing
-            </button>
-          </div>
-        </div>
-      )}
-    </>,
-    document.body,
-  );
+// Matches the top-right "Share" button's own styling (.collab-button in
+// LiveCollaborationTrigger.scss): --color-primary background, white text,
+// --border-radius-lg. Used for the one primary action in the guide.
+const primaryButtonStyle: React.CSSProperties = {
+  ...buttonStyle,
+  borderRadius: "0.5rem",
+  background: "#6965db",
+  color: "#ffffff",
+  border: "1px solid #6965db",
+  padding: "8px 14px",
 };
 
 /**
- * Injected only while the guide is on screen (the <style> tags unmount with
- * the portal), so the toolbar highlight below leaves no trace once the guide
- * is gone. The highlight is box-shadow only: it can't shift layout or
- * intercept pointer events on the tool buttons.
+ * The shape-tool hint's "highlight the shape tool" (PRD response table): a
+ * pulsing box-shadow on the toolbar's shape buttons, selected by their
+ * stable data-testids. Rendered as a <style> tag only while that hint is
+ * showing, so it leaves no trace once the guide moves on or ends -- and
+ * box-shadow can't shift layout or intercept pointer events on the tools.
  */
-const CARD_STYLES = `
-.quickstart-card {
-  position: fixed;
-  bottom: 48px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  box-sizing: border-box;
-  width: min(360px, calc(100vw - 32px));
-  padding: 14px 16px;
-  border-radius: 10px;
-  border: 1px solid #e4e4ef;
-  background: #ffffff;
-  color: #1b1b1f;
-  font-family: "Excalifont", "Xiaolai", sans-serif;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-.quickstart-card__title {
-  font-size: 15px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.quickstart-card__body {
-  font-size: 13px;
-  line-height: 1.45;
-  color: #3d3d47;
-}
-.quickstart-card__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-.quickstart-card__actions .quickstart-card__end {
-  margin-left: auto;
-}
-.quickstart-card__end {
-  align-self: flex-end;
-  margin-top: 10px;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  color: #3d3d47;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.quickstart-card__end:hover {
-  background: #f0f0f7;
-}
-.quickstart-card__primary {
-  padding: 7px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  font-weight: 500;
-  color: #ffffff;
-  background: #6965db;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.quickstart-card__primary:hover {
-  background: #5b57c9;
-}
-`;
-
-/** The shape-tool hint's highlight on the toolbar's shape buttons. */
 const SHAPE_TOOL_HIGHLIGHT_STYLES = `
 @keyframes quickstart-hint-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
@@ -210,4 +83,65 @@ const SHAPE_TOOL_HIGHLIGHT_STYLES = `
 }
 `;
 
-export default QuickstartGuide;
+export const QuickstartGuide: React.FC<{
+  isVisible: boolean;
+  optedIn: boolean;
+  activeHint: HintId | null;
+  onOptIn: () => void;
+  onEndGuide: () => void;
+}> = ({ isVisible, optedIn, activeHint, onOptIn, onEndGuide }) => {
+  if (!isVisible) {
+    return null;
+  }
+
+  if (!optedIn) {
+    return createPortal(
+      <div data-testid="quickstart-prompt" style={overlayStyle}>
+        <span>
+          Making your first diagram? Turn a process into a simple drawing.
+        </span>
+        <button
+          style={primaryButtonStyle}
+          data-testid="quickstart-opt-in"
+          onClick={onOptIn}
+        >
+          Help me get started
+        </button>
+        <button
+          style={buttonStyle}
+          data-testid="quickstart-decline"
+          onClick={onEndGuide}
+        >
+          Keep drawing
+        </button>
+      </div>,
+      document.body,
+    );
+  }
+
+  if (activeHint === "shape-tool") {
+    return createPortal(
+      <>
+        <style data-testid="quickstart-shape-tool-styles">
+          {SHAPE_TOOL_HIGHLIGHT_STYLES}
+        </style>
+        <div data-testid="quickstart-hint-shape-tool" style={overlayStyle}>
+          <span>
+            Pick a highlighted shape tool in the toolbar, then draw your first
+            shape.
+          </span>
+          <button
+            style={buttonStyle}
+            data-testid="quickstart-end-guide"
+            onClick={onEndGuide}
+          >
+            End guide
+          </button>
+        </div>
+      </>,
+      document.body,
+    );
+  }
+
+  return null;
+};
