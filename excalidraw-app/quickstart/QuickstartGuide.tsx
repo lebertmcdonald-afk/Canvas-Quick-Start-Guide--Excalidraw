@@ -45,16 +45,21 @@ const overlayStyle: React.CSSProperties = {
 
 /**
  * Buttons live in a rendered stylesheet rather than inline styles because
- * they need :hover states, matching the app's own buttons (values are the
- * light-theme literals of the tokens in packages/excalidraw/css/theme.scss,
- * since the vars themselves are scoped to .excalidraw and don't resolve in
- * this portal):
- *  - plain buttons hover to --button-hover-bg (= --color-surface-high,
- *    #f1f0ff), like the rest of the app's ghost buttons, and carry no
- *    border at all -- the UA default border must stay invisible.
+ * they need :hover/:active states, matching the app's own buttons (values
+ * are the light-theme literals of the tokens in packages/excalidraw/css/theme.scss
+ * and excalidraw-app/index.scss, since the vars themselves are scoped to
+ * .excalidraw and don't resolve in this portal):
  *  - the primary action matches the top-right "Share" button
  *    (.collab-button): --color-primary background/border, hovering to
  *    --color-primary-darker (#5b57d1) on both.
+ *  - the secondary action matches the "Excalidraw+" button (.plus-banner):
+ *    --color-surface-low background, a --color-surface-lowest 1px ring
+ *    instead of a border, --color-on-surface text, hovering to
+ *    --color-primary with white text and pressing to --color-primary-darker.
+ *  - plain buttons ("End guide") hover to --button-hover-bg
+ *    (--color-surface-high, #f1f0ff) like the rest of the app's ghost
+ *    buttons, and carry no border at all -- the UA default border must
+ *    stay invisible.
  */
 const BUTTON_STYLES = `
 .quickstart-btn {
@@ -74,11 +79,30 @@ const BUTTON_STYLES = `
   border: 1px solid #6965db;
   color: #ffffff;
   padding: 8px 14px;
+  height: 2.25rem;
+  box-sizing: border-box;
   border-radius: 0.5rem;
 }
 .quickstart-btn--primary:hover {
   background: #5b57d1;
   border-color: #5b57d1;
+}
+.quickstart-btn--secondary {
+  background: #ececf4;
+  box-shadow: 0 0 0 1px #ffffff;
+  color: #1b1b1f;
+  padding: 8px 14px;
+  height: 2.25rem;
+  box-sizing: border-box;
+  border-radius: 0.5rem;
+}
+.quickstart-btn--secondary:hover {
+  background: #6965db;
+  color: #ffffff;
+}
+.quickstart-btn--secondary:active {
+  background: #5b57d1;
+  box-shadow: 0 0 0 1px #4440bf;
 }
 `;
 
@@ -128,7 +152,7 @@ export const QuickstartGuide: React.FC<{
             Help me get started
           </button>
           <button
-            className="quickstart-btn"
+            className="quickstart-btn quickstart-btn--secondary"
             data-testid="quickstart-decline"
             onClick={onEndGuide}
           >
