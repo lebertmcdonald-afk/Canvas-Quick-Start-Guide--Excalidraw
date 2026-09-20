@@ -119,6 +119,10 @@ describe("quickstart guide UI", () => {
   it("the prompt offers opt-in and decline, both working", () => {
     const { onOptIn, onEndGuide } = renderUi({ optedIn: false });
     expect(document.body).toHaveTextContent("Making your first diagram?");
+    // the hover/border styling for the buttons mounts with the prompt
+    expect(
+      document.querySelector('[data-testid="quickstart-button-styles"]'),
+    ).not.toBe(null);
 
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-opt-in"]')!,
@@ -139,6 +143,9 @@ describe("quickstart guide UI", () => {
     expect(document.body).toHaveTextContent("draw your first shape");
     expect(
       document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).not.toBe(null);
+    expect(
+      document.querySelector('[data-testid="quickstart-button-styles"]'),
     ).not.toBe(null);
 
     fireEvent.click(

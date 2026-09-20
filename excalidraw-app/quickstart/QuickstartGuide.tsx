@@ -43,26 +43,44 @@ const overlayStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
-// <button> elements don't inherit font-family from an ancestor by default
-// (browser UA stylesheets set their own), so it has to be applied directly.
-const buttonStyle: React.CSSProperties = {
-  fontFamily: UI_FONT,
-  borderRadius: "0.375rem",
-  padding: "6px 10px",
-  cursor: "pointer",
-};
-
-// Matches the top-right "Share" button's own styling (.collab-button in
-// LiveCollaborationTrigger.scss): --color-primary background, white text,
-// --border-radius-lg. Used for the one primary action in the guide.
-const primaryButtonStyle: React.CSSProperties = {
-  ...buttonStyle,
-  borderRadius: "0.5rem",
-  background: "#6965db",
-  color: "#ffffff",
-  border: "1px solid #6965db",
-  padding: "8px 14px",
-};
+/**
+ * Buttons live in a rendered stylesheet rather than inline styles because
+ * they need :hover states, matching the app's own buttons (values are the
+ * light-theme literals of the tokens in packages/excalidraw/css/theme.scss,
+ * since the vars themselves are scoped to .excalidraw and don't resolve in
+ * this portal):
+ *  - plain buttons hover to --button-hover-bg (= --color-surface-high,
+ *    #f1f0ff), like the rest of the app's ghost buttons, and carry no
+ *    border at all -- the UA default border must stay invisible.
+ *  - the primary action matches the top-right "Share" button
+ *    (.collab-button): --color-primary background/border, hovering to
+ *    --color-primary-darker (#5b57d1) on both.
+ */
+const BUTTON_STYLES = `
+.quickstart-btn {
+  font-family: ${UI_FONT};
+  font-size: 13px;
+  border: none;
+  background: none;
+  padding: 6px 10px;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+.quickstart-btn:hover {
+  background: #f1f0ff;
+}
+.quickstart-btn--primary {
+  background: #6965db;
+  border: 1px solid #6965db;
+  color: #ffffff;
+  padding: 8px 14px;
+  border-radius: 0.5rem;
+}
+.quickstart-btn--primary:hover {
+  background: #5b57d1;
+  border-color: #5b57d1;
+}
+`;
 
 /**
  * The shape-tool hint's "highlight the shape tool" (PRD response table): a
@@ -96,25 +114,28 @@ export const QuickstartGuide: React.FC<{
 
   if (!optedIn) {
     return createPortal(
-      <div data-testid="quickstart-prompt" style={overlayStyle}>
-        <span>
-          Making your first diagram? Turn a process into a simple drawing.
-        </span>
-        <button
-          style={primaryButtonStyle}
-          data-testid="quickstart-opt-in"
-          onClick={onOptIn}
-        >
-          Help me get started
-        </button>
-        <button
-          style={buttonStyle}
-          data-testid="quickstart-decline"
-          onClick={onEndGuide}
-        >
-          Keep drawing
-        </button>
-      </div>,
+      <>
+        <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
+        <div data-testid="quickstart-prompt" style={overlayStyle}>
+          <span>
+            Making your first diagram? Turn a process into a simple drawing.
+          </span>
+          <button
+            className="quickstart-btn quickstart-btn--primary"
+            data-testid="quickstart-opt-in"
+            onClick={onOptIn}
+          >
+            Help me get started
+          </button>
+          <button
+            className="quickstart-btn"
+            data-testid="quickstart-decline"
+            onClick={onEndGuide}
+          >
+            Keep drawing
+          </button>
+        </div>
+      </>,
       document.body,
     );
   }
@@ -122,6 +143,7 @@ export const QuickstartGuide: React.FC<{
   if (activeHint === "shape-tool") {
     return createPortal(
       <>
+        <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
         <style data-testid="quickstart-shape-tool-styles">
           {SHAPE_TOOL_HIGHLIGHT_STYLES}
         </style>
@@ -131,7 +153,7 @@ export const QuickstartGuide: React.FC<{
             shape.
           </span>
           <button
-            style={buttonStyle}
+            className="quickstart-btn"
             data-testid="quickstart-end-guide"
             onClick={onEndGuide}
           >
