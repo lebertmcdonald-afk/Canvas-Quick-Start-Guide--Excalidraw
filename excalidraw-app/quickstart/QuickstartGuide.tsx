@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { HintId } from "./types";
@@ -25,9 +25,13 @@ const ISLAND_SHADOW =
 
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
-  // Below the toolbar, not on top of it -- top: 8 used to sit right over
-  // the toolbar icons, which is especially bad for the shape-tool hint:
-  // it was covering the exact tool it was telling you to click.
+  // Default spot: below the toolbar, not on top of it -- top: 8 used to
+  // sit right over the toolbar icons, which is especially bad for the
+  // shape-tool hint: it was covering the exact tool it was telling you to
+  // click. While the welcome screen's toolbar tooltip ("Pick a tool &
+  // Start drawing!") is on screen, the card is shifted further down, below
+  // that tooltip, so it never blocks those first-use instructions (see
+  // useToolbarHintBottom).
   top: 76,
   left: "50%",
   transform: "translateX(-50%)",
@@ -41,6 +45,47 @@ const overlayStyle: React.CSSProperties = {
   boxShadow: ISLAND_SHADOW,
   fontFamily: UI_FONT,
   fontSize: 13,
+};
+
+/**
+ * The welcome screen's toolbar tooltip, which the card must not block while
+ * it's visible (it only renders while the welcome screen does -- empty
+ * canvas, tall enough viewport -- and disappears once the user draws).
+ */
+const TOOLBAR_HINT_SELECTOR = ".excalidraw .welcome-screen-decor-hint--toolbar";
+
+/**
+ * Bottom edge (viewport px) of the welcome screen's toolbar tooltip, or
+ * null when it isn't on screen. Re-measured on DOM changes and resize
+ * because the tooltip mounts after the initial load and unmounts when the
+ * user starts drawing; a zero-height rect means it's hidden by the
+ * welcome screen's media queries, which reads the same as absent.
+ */
+const useToolbarHintBottom = (enabled: boolean) => {
+  const [bottom, setBottom] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const measure = () => {
+      const hint = document.querySelector(TOOLBAR_HINT_SELECTOR);
+      const rect = hint?.getBoundingClientRect();
+      setBottom(rect && rect.height > 0 ? Math.ceil(rect.bottom) : null);
+    };
+
+    measure();
+    const observer = new MutationObserver(measure);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [enabled]);
+
+  return bottom;
 };
 
 /**
@@ -132,6 +177,12 @@ export const QuickstartGuide: React.FC<{
   onOptIn: () => void;
   onEndGuide: () => void;
 }> = ({ isVisible, optedIn, activeHint, onOptIn, onEndGuide }) => {
+  const toolbarHintBottom = useToolbarHintBottom(isVisible);
+  const positionedOverlayStyle: React.CSSProperties = {
+    ...overlayStyle,
+    top: toolbarHintBottom !== null ? toolbarHintBottom + 8 : overlayStyle.top,
+  };
+
   if (!isVisible) {
     return null;
   }
@@ -140,7 +191,7 @@ export const QuickstartGuide: React.FC<{
     return createPortal(
       <>
         <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
-        <div data-testid="quickstart-prompt" style={overlayStyle}>
+        <div data-testid="quickstart-prompt" style={positionedOverlayStyle}>
           <span>
             Making your first diagram? Turn a process into a simple drawing.
           </span>
@@ -171,7 +222,10 @@ export const QuickstartGuide: React.FC<{
         <style data-testid="quickstart-shape-tool-styles">
           {SHAPE_TOOL_HIGHLIGHT_STYLES}
         </style>
-        <div data-testid="quickstart-hint-shape-tool" style={overlayStyle}>
+        <div
+          data-testid="quickstart-hint-shape-tool"
+          style={positionedOverlayStyle}
+        >
           <span>
             Pick a highlighted shape tool in the toolbar, then draw your first
             shape.
