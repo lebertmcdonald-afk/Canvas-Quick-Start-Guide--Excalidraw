@@ -5,25 +5,25 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 | File | Owns | Day |
 | --- | --- | --- |
 | `useIsNewCanvasUser.ts` | Eligibility check (3 signals) | Day 15 — Lebert |
-| `useQuickstartGuide.ts` | Guide behavior: opt-in, first hint, end-guide, exposure→seen-flag, scene detection | Day 16 — Jason |
-| `QuickstartGuide.tsx` | Prompt + hint UI (incl. the shape-tool toolbar highlight) | Day 16 — Jason |
-| `behavior.ts` | Pure logic: what counts as a user-authored mark, hint progression | Day 16 — Jason |
+| `useQuickstartGuide.ts` | Guide behavior: opt-in, hint progression, end-guide, exposure→seen-flag, scene detection | Day 16 — Jason, extended Day 18 — Lebert |
+| `QuickstartGuide.tsx` | Prompt + hint UI (incl. the shape-tool toolbar highlight, the "How to start" link) | Day 16 — Jason, extended Day 18 — Lebert |
+| `behavior.ts` | Pure logic: what counts as a user-authored mark/label, hint progression, per-hint completion checks | Day 16 — Jason, extended Day 18 — Lebert |
 | `types.ts` | Shared types: hint IDs, experiment group, event names | infra |
 | `state.ts` | Shared guide state (Jotai atoms) | infra |
 
 ## What's built vs. what's scaffolded
 
 - **Day 15 (done):** eligibility check is real and wired into `excalidraw-app/App.tsx`. A browser is "new" only if it has no saved elements, no library items, and no seen-guide flag.
-- **Day 16 (done):** opt-in prompt is real (two working actions, not a placeholder); the first hint (`shape-tool`) shows once opted in — with a pulsing highlight on the toolbar's shape buttons — and disappears on its own the moment the user authors a shape themselves, detected via the existing `onChange` scene-change callback; the "end the guide" control actually suppresses further guide state; a user who never interacts with any of it still gets an unblocked, undelayed canvas (P0, re-verified — see `tests/quickstart.test.tsx`) since `onChange` only _observes_ scene changes after Excalidraw has already applied them -- it can't gate or slow drawing. `markGuideSeen()` fires on exposure (first time the prompt is shown to a new user), not on completion -- see the comment on it in `useIsNewCanvasUser.ts` for why that distinction matters.
+- **Day 16 (done):** opt-in prompt is real (two working actions, not a placeholder, plus a "How to start with Excalidraw" link to `plus.excalidraw.com/how-to-start`); the first hint (`shape-tool`) shows once opted in — with a pulsing highlight on the toolbar's shape buttons — and disappears on its own the moment the user authors a shape themselves, detected via the existing `onChange` scene-change callback; the "end the guide" control actually suppresses further guide state; a user who never interacts with any of it still gets an unblocked, undelayed canvas (P0, re-verified — see `tests/quickstart.test.tsx`) since `onChange` only _observes_ scene changes after Excalidraw has already applied them -- it can't gate or slow drawing. `markGuideSeen()` fires on exposure (first time the prompt is shown to a new user), not on completion -- see the comment on it in `useIsNewCanvasUser.ts` for why that distinction matters.
+- **Day 18 (done):** the `labeling` hint ("Double-click a shape to name this step," matching the PRD's exact copy) is real -- it auto-activates once `shape-tool` completes, and completes itself the moment the user adds a genuine *bound* label to a shape (`containerId` set), not just any text on the canvas. Both verified by hand in-browser, not just typechecked.
 
-  Two detection rules, deliberately different (both in `useQuickstartGuide.notifySceneChange`, logic in `behavior.ts`):
+  Detection generalized rather than duplicated: `notifySceneChange` no longer hardcodes shape-tool. It looks up the active hint's completion check in `behavior.ts`'s `HINT_COMPLETION` map (`hasAny` / `findFirstNew`, one entry per hint with real detection), so a future hint just needs a `behavior.ts` entry and a render branch in `QuickstartGuide.tsx` -- the hook itself doesn't change. Two detection rules stay deliberately different, per hint:
 
   - **Prompt-clear (PRD P1):** a user who never opted in gets the prompt out of the way on their first canvas interaction — any content counts.
-  - **Hint completion (PRD P0):** mark-based. Only elements the user authored themselves (shapes, arrows, lines, freedraw, text — not images/imports, per PRD §3) complete the hint, and only once; elements that predate opting in are baselined, not counted.
+  - **Hint completion (PRD P0):** per-hint and mark-aware. `shape-tool` wants any authored mark (not images/imports, per PRD §3); `labeling` wants specifically a bound text label, so a freestanding text box doesn't complete it. Either way, only new elements (not present when detection started) count, and only once.
 
-- **Not built yet:** the `labeling`, `connecting`, and `save` hints (add the id to `IMPLEMENTED_HINTS` in `behavior.ts` plus rendering in `QuickstartGuide.tsx`, and the chain advances automatically), collaborator/import authorship beyond the mark-type exclusion, save-state confirmation, and analytics wiring for the five `QuickstartEventName`s:
-  - Day 17 (Abdoul): hardening, or the next hint (`labeling`) if Day 16 lands clean.
-  - Day 18 (Mofazzal): full hint chain end-to-end (`HINT_SEQUENCE[1..3]`), user-authored vs. system/import/collaborator action detection, save-state confirmation.
+- **Not built yet:** the `connecting` and `save` hints (add the id to `IMPLEMENTED_HINTS` in `behavior.ts`, an entry in `HINT_COMPLETION` if they need real detection, plus rendering in `QuickstartGuide.tsx`), collaborator/import authorship beyond the mark-type exclusion, save-state confirmation, and analytics wiring for the five `QuickstartEventName`s:
+  - Day 18 (Mofazzal): `connecting` and `save` hints, user-authored vs. system/import/collaborator action detection, save-state confirmation.
   - Day 20 (Jason): analytics wiring for the five `QuickstartEventName`s, control/treatment comparison.
 
 ## Conventions

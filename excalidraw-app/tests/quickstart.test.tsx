@@ -11,7 +11,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
-import { findFirstUserMark, nextHint } from "../quickstart/behavior";
+import {
+  findFirstUserLabel,
+  findFirstUserMark,
+  nextHint,
+} from "../quickstart/behavior";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
 import {
   activeHintAtom,
@@ -19,7 +23,10 @@ import {
   guideEndedAtom,
   guideOptedInAtom,
 } from "../quickstart/state";
+
 import { useQuickstartGuide } from "../quickstart/useQuickstartGuide";
+
+import type { HintId } from "../quickstart/types";
 
 import type { ReactNode } from "react";
 
@@ -28,6 +35,16 @@ const makeElement = (
   type: OrderedExcalidrawElement["type"],
   isDeleted = false,
 ) => ({ id, type, isDeleted } as unknown as OrderedExcalidrawElement);
+
+/** A bound text label on a shape -- containerId set -- vs. makeElement("id",
+ * "text"), which is a freestanding text box and must NOT count as a label. */
+const makeLabel = (id: string, containerId: string, isDeleted = false) =>
+  ({
+    id,
+    type: "text",
+    containerId,
+    isDeleted,
+  } as unknown as OrderedExcalidrawElement);
 
 const resetGuideState = () => {
   appJotaiStore.set(guideOptedInAtom, false);
@@ -62,7 +79,8 @@ const optInAndShowShapeHint = (result: {
 describe("quickstart behavior logic", () => {
   it("nextHint returns the first implemented, uncompleted hint", () => {
     expect(nextHint([])).toBe("shape-tool");
-    expect(nextHint(["shape-tool"])).toBeNull();
+    expect(nextHint(["shape-tool"])).toBe("labeling");
+    expect(nextHint(["shape-tool", "labeling"])).toBeNull();
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
@@ -85,6 +103,24 @@ describe("quickstart behavior logic", () => {
     // import-style content: not a user mark
     expect(findFirstUserMark(known, [makeElement("b", "image")])).toBeNull();
   });
+
+  it("findFirstUserLabel detects a newly bound text element, not a freestanding one", () => {
+    const known = new Set(["a"]);
+    expect(
+      findFirstUserLabel(known, [
+        makeElement("a", "rectangle"),
+        makeLabel("b", "shape1"),
+      ])?.id,
+    ).toBe("b");
+    // freestanding text (no container): not a label
+    expect(findFirstUserLabel(known, [makeElement("b", "text")])).toBeNull();
+    // already-known id: not new
+    expect(findFirstUserLabel(known, [makeLabel("a", "shape1")])).toBeNull();
+    // deleted: not a label
+    expect(
+      findFirstUserLabel(known, [makeLabel("b", "shape1", true)]),
+    ).toBeNull();
+  });
 });
 
 describe("quickstart guide UI", () => {
@@ -96,7 +132,7 @@ describe("quickstart guide UI", () => {
   const renderUi = (props: {
     isVisible?: boolean;
     optedIn?: boolean;
-    activeHint?: "shape-tool" | null;
+    activeHint?: HintId | null;
   }) => {
     const onOptIn = vi.fn();
     const onEndGuide = vi.fn();
@@ -132,6 +168,34 @@ describe("quickstart guide UI", () => {
 
     fireEvent.click(
       document.querySelector('[data-testid="quickstart-decline"]')!,
+    );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it('the prompt\'s "How to start" link opens the right page in a new tab', () => {
+    renderUi({ optedIn: false });
+    const link = document.querySelector<HTMLAnchorElement>(
+      '[data-testid="quickstart-how-to-start"]',
+    )!;
+    expect(link.href).toBe("https://plus.excalidraw.com/how-to-start");
+    expect(link.target).toBe("_blank");
+    // new-tab links without rel="noopener" let the opened page reach back
+    // into window.opener -- a real (if minor) security hole
+    expect(link.rel).toContain("noopener");
+  });
+
+  it("the labeling hint shows PRD copy and an explicit end control", () => {
+    const { onEndGuide } = renderUi({ optedIn: true, activeHint: "labeling" });
+    expect(document.body).toHaveTextContent(
+      "Double-click a shape to name this step.",
+    );
+    // no shape-tool-specific toolbar highlight while labeling is active
+    expect(
+      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).toBe(null);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="quickstart-end-guide"]')!,
     );
     expect(onEndGuide).toHaveBeenCalledTimes(1);
   });
@@ -221,7 +285,7 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     expect(notNew.markGuideSeen).not.toHaveBeenCalled();
   });
 
-  it("the user authoring a shape completes the hint on its own, once", () => {
+  it("the user authoring a shape completes the hint on its own, once, and advances to labeling", () => {
     const { result } = renderGuideHook(true);
     optInAndShowShapeHint(result);
 
@@ -230,9 +294,10 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       result.current.notifySceneChange([makeElement("el1", "rectangle")]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(result.current.activeHint).toBeNull();
+    expect(result.current.activeHint).toBe("labeling");
 
-    // a second shape must not resurrect or duplicate anything
+    // a second shape must not resurrect or duplicate shape-tool, and must
+    // not complete labeling either -- it's not a bound label
     act(() =>
       result.current.notifySceneChange([
         makeElement("el1", "rectangle"),
@@ -240,7 +305,57 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
+  });
+
+  it("labeling a shape completes that hint on its own, once; a freestanding text box doesn't", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+
+    act(() => result.current.notifySceneChange([])); // baseline
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+    expect(result.current.activeHint).toBe("labeling");
+
+    // a freestanding text box (not bound to the shape) must not complete it
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("txt1", "text"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
+
+    // double-clicking the shape and typing a label: a bound text element
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("txt1", "text"),
+        makeLabel("lbl1", "el1"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    // connecting isn't implemented yet, so the chain has nowhere further to go
     expect(result.current.activeHint).toBeNull();
+
+    // a second label must not duplicate the completion
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("txt1", "text"),
+        makeLabel("lbl1", "el1"),
+        makeLabel("lbl2", "el1"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
   });
 
   it("content that isn't a user mark doesn't complete the hint; a real mark does", () => {
