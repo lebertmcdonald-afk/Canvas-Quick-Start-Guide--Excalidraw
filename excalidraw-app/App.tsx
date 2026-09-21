@@ -132,6 +132,11 @@ import {
 } from "./data/LocalData";
 import { isBrowserStorageStateNewer } from "./data/tabSync";
 import { ShareDialog, shareDialogStateAtom } from "./share/ShareDialog";
+import {
+  UnsavedWorkDialog,
+  unsavedWorkDialogStateAtom,
+} from "./components/UnsavedWorkDialog";
+import { hasUnsavedWork } from "./unsavedWork";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
@@ -411,6 +416,7 @@ const ExcalidrawWrapper = () => {
   }, []);
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
+  const [, setUnsavedWorkDialogState] = useAtom(unsavedWorkDialogStateAtom);
   const [collabAPI] = useAtom(collabAPIAtom);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
     return isCollaborationLink(window.location.href);
@@ -576,25 +582,48 @@ const ExcalidrawWrapper = () => {
       event.preventDefault();
       const libraryUrlTokens = parseLibraryTokensFromUrl();
       if (!libraryUrlTokens) {
-        if (
-          collabAPI?.isCollaborating() &&
-          !isCollaborationLink(window.location.href)
-        ) {
-          collabAPI.stopCollaboration(false);
-        }
-        excalidrawAPI.updateScene({ appState: { isLoading: true } });
-
-        initializeScene({ collabAPI, excalidrawAPI }).then((data) => {
-          loadImages(data);
-          if (data.scene) {
-            excalidrawAPI.updateScene({
-              elements: restoreElements(data.scene.elements, null, {
-                repairBindings: true,
-              }),
-              appState: restoreAppState(data.scene.appState, null),
-              captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-            });
+        const loadSceneFromUrl = () => {
+          if (
+            collabAPI?.isCollaborating() &&
+            !isCollaborationLink(window.location.href)
+          ) {
+            collabAPI.stopCollaboration(false);
           }
+          excalidrawAPI.updateScene({ appState: { isLoading: true } });
+
+          initializeScene({ collabAPI, excalidrawAPI }).then((data) => {
+            loadImages(data);
+            if (data.scene) {
+              excalidrawAPI.updateScene({
+                elements: restoreElements(data.scene.elements, null, {
+                  repairBindings: true,
+                }),
+                appState: restoreAppState(data.scene.appState, null),
+                captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+              });
+            }
+          });
+        };
+
+        if (
+          !excalidrawAPI ||
+          !hasUnsavedWork(excalidrawAPI.getSceneElements())
+        ) {
+          loadSceneFromUrl();
+          return;
+        }
+
+        // loading a different scene replaces the one on screen -- with
+        // unsaved work in it, confirm first (UnsavedWorkDialog)
+        setUnsavedWorkDialogState({
+          isOpen: true,
+          onConfirm: loadSceneFromUrl,
+          onCancel: () => {
+            // put the URL back in sync with the scene still on screen
+            if (event.oldURL) {
+              window.history.replaceState(null, "", event.oldURL);
+            }
+          },
         });
       }
     };
@@ -690,18 +719,20 @@ const ExcalidrawWrapper = () => {
         false,
       );
     };
-  }, [isCollabDisabled, collabAPI, excalidrawAPI, setLangCode, loadImages]);
+  }, [
+    isCollabDisabled,
+    collabAPI,
+    excalidrawAPI,
+    setLangCode,
+    loadImages,
+    setUnsavedWorkDialogState,
+  ]);
 
   useEffect(() => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
       LocalData.flushSave();
 
-      if (
-        excalidrawAPI &&
-        LocalData.fileStorage.shouldPreventUnload(
-          excalidrawAPI.getSceneElements(),
-        )
-      ) {
+      if (excalidrawAPI && hasUnsavedWork(excalidrawAPI.getSceneElements())) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
         } else {
@@ -1096,6 +1127,8 @@ const ExcalidrawWrapper = () => {
         {excalidrawAPI && !isCollabDisabled && (
           <Collab excalidrawAPI={excalidrawAPI} />
         )}
+
+        <UnsavedWorkDialog />
 
         <ShareDialog
           collabAPI={collabAPI}

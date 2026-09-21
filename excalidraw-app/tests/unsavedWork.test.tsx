@@ -1,0 +1,182 @@
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { Excalidraw } from "@excalidraw/excalidraw";
+
+import type { ExcalidrawElement, FileId } from "@excalidraw/element/types";
+import type { DataURL } from "@excalidraw/excalidraw/types";
+
+import { FileManager } from "../data/FileManager";
+import { localStorageQuotaExceededAtom } from "../data/LocalData";
+import { Provider, appJotaiStore } from "../app-jotai";
+import { hasUnsavedWork } from "../unsavedWork";
+import {
+  UnsavedWorkDialog,
+  unsavedWorkDialogStateAtom,
+} from "../components/UnsavedWorkDialog";
+
+const makeImageElement = (id: string, fileId: string) =>
+  ({
+    id,
+    type: "image",
+    fileId,
+    isDeleted: false,
+  } as unknown as ExcalidrawElement);
+
+const makeFileManager = (
+  saveFilesImpl: ConstructorParameters<
+    typeof FileManager
+  >[0]["saveFiles"] = async () => ({
+    savedFiles: new Map(),
+    erroredFiles: new Map(),
+  }),
+) =>
+  new FileManager({
+    getFiles: async () => ({
+      loadedFiles: [],
+      erroredFiles: new Map(),
+    }),
+    saveFiles: saveFilesImpl,
+  });
+
+const renderDialog = () =>
+  render(
+    <Provider store={appJotaiStore}>
+      <Excalidraw>
+        <UnsavedWorkDialog />
+      </Excalidraw>
+    </Provider>,
+  );
+
+const openDialog = (onConfirm: () => void, onCancel?: () => void) =>
+  act(() =>
+    appJotaiStore.set(unsavedWorkDialogStateAtom, {
+      isOpen: true,
+      onConfirm,
+      onCancel,
+    }),
+  );
+
+const resetState = () => {
+  appJotaiStore.set(localStorageQuotaExceededAtom, false);
+  appJotaiStore.set(unsavedWorkDialogStateAtom, {
+    isOpen: false,
+    onConfirm: () => {},
+  });
+};
+
+describe("hasUnsavedWork", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  it("is false when saves have settled and storage is healthy", () => {
+    expect(
+      hasUnsavedWork([makeImageElement("a", "f1")], {
+        fileStorage: makeFileManager(),
+        quotaExceeded: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("is true while an image file save is still in flight", () => {
+    const fileStorage = makeFileManager(
+      // never resolves: save stays in flight
+      () => new Promise(() => {}),
+    );
+    // populates fileStorage's in-flight set (synchronously, before the await)
+    void fileStorage.saveFiles({
+      elements: [makeImageElement("a", "f1")],
+      files: {
+        f1: {
+          id: "f1" as FileId,
+          dataURL: "data:image/png;base64," as DataURL,
+          mimeType: "image/png",
+          created: 1,
+          lastRetrieved: 1,
+          version: 1,
+        },
+      },
+    });
+
+    expect(hasUnsavedWork([makeImageElement("a", "f1")], { fileStorage })).toBe(
+      true,
+    );
+  });
+
+  it("is true when the localStorage quota is exceeded (scene can't persist)", () => {
+    expect(
+      hasUnsavedWork([], {
+        fileStorage: makeFileManager(),
+        quotaExceeded: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("reads the live quota atom by default", () => {
+    appJotaiStore.set(localStorageQuotaExceededAtom, true);
+    expect(hasUnsavedWork([], { fileStorage: makeFileManager() })).toBe(true);
+  });
+});
+
+describe("UnsavedWorkDialog", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  it("renders nothing until opened", async () => {
+    renderDialog();
+    await waitFor(() => {
+      // wait for the editor to mount before asserting absence
+      expect(document.querySelector(".excalidraw")).not.toBe(null);
+    });
+    expect(document.body).not.toHaveTextContent("You have unsaved changes");
+  });
+
+  it("Leave anyway runs onConfirm and closes; Stay runs onCancel and closes", async () => {
+    renderDialog();
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+
+    openDialog(onConfirm, onCancel);
+    await waitFor(() => {
+      expect(document.body).toHaveTextContent("You have unsaved changes");
+    });
+
+    fireEvent.click(
+      [...document.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("Leave anyway"),
+      )!,
+    );
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(document.body).not.toHaveTextContent("You have unsaved changes");
+    });
+
+    openDialog(onConfirm, onCancel);
+    await waitFor(() => {
+      expect(document.body).toHaveTextContent("You have unsaved changes");
+    });
+    fireEvent.click(
+      [...document.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("Stay"),
+      )!,
+    );
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(document.body).not.toHaveTextContent("You have unsaved changes");
+    });
+  });
+
+  it("uses the app's existing dialog button components", async () => {
+    renderDialog();
+    openDialog(vi.fn());
+
+    await waitFor(() => {
+      // FilledButton (ExcButton) is the app's existing button component
+      expect(document.querySelector(".UnsavedWorkDialog .ExcButton")).not.toBe(
+        null,
+      );
+    });
+  });
+});
