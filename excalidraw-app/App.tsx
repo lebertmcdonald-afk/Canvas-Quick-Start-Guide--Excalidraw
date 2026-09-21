@@ -136,7 +136,11 @@ import {
   UnsavedWorkDialog,
   unsavedWorkDialogStateAtom,
 } from "./components/UnsavedWorkDialog";
-import { hasUnsavedWork } from "./unsavedWork";
+import {
+  hasUnsavedWork,
+  markExplicitlySaved,
+  noteSceneChange,
+} from "./unsavedWork";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
@@ -607,7 +611,9 @@ const ExcalidrawWrapper = () => {
 
         if (
           !excalidrawAPI ||
-          !hasUnsavedWork(excalidrawAPI.getSceneElements())
+          !hasUnsavedWork(excalidrawAPI.getSceneElements(), {
+            isCollaborating: collabAPI?.isCollaborating() ?? false,
+          })
         ) {
           loadSceneFromUrl();
           return;
@@ -732,7 +738,12 @@ const ExcalidrawWrapper = () => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
       LocalData.flushSave();
 
-      if (excalidrawAPI && hasUnsavedWork(excalidrawAPI.getSceneElements())) {
+      if (
+        excalidrawAPI &&
+        hasUnsavedWork(excalidrawAPI.getSceneElements(), {
+          isCollaborating: collabAPI?.isCollaborating() ?? false,
+        })
+      ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
         } else {
@@ -746,7 +757,29 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI]);
+  }, [excalidrawAPI, collabAPI]);
+
+  useEffect(() => {
+    // observe (capture, without preventing) the save/export keyboard
+    // shortcuts so they count as the user's explicit save gesture
+    const onKeyDownCapture = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        const key = event.key.toLowerCase();
+        // saveScene (CtrlOrCmd+S) and imageExport (CtrlOrCmd+Shift+E)
+        if (key === "s" || (key === "e" && event.shiftKey)) {
+          markExplicitlySaved();
+        }
+      }
+    };
+    window.addEventListener(
+      EVENT.KEYDOWN,
+      onKeyDownCapture,
+      /* capture */ true,
+    );
+    return () => {
+      window.removeEventListener(EVENT.KEYDOWN, onKeyDownCapture, true);
+    };
+  }, []);
 
   const onChange = (
     elements: readonly OrderedExcalidrawElement[],
@@ -754,6 +787,7 @@ const ExcalidrawWrapper = () => {
     files: BinaryFiles,
   ) => {
     quickstart.notifySceneChange(elements);
+    noteSceneChange(elements);
 
     if (collabAPI?.isCollaborating()) {
       collabAPI.syncElements(elements);
@@ -1012,6 +1046,8 @@ const ExcalidrawWrapper = () => {
                           });
                         }}
                         onSuccess={() => {
+                          // exported to the Excalidraw+ workspace: saved
+                          markExplicitlySaved();
                           excalidrawAPI.updateScene({
                             appState: { openDialog: null },
                           });

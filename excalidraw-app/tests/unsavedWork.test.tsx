@@ -9,7 +9,13 @@ import type { DataURL } from "@excalidraw/excalidraw/types";
 import { FileManager } from "../data/FileManager";
 import { localStorageQuotaExceededAtom } from "../data/LocalData";
 import { Provider, appJotaiStore } from "../app-jotai";
-import { hasUnsavedWork } from "../unsavedWork";
+import {
+  hasUnsavedExplicitWork,
+  hasUnsavedWork,
+  markExplicitlySaved,
+  noteSceneChange,
+  resetUnsavedWorkTracking,
+} from "../unsavedWork";
 import {
   UnsavedWorkDialog,
   unsavedWorkDialogStateAtom,
@@ -20,6 +26,14 @@ const makeImageElement = (id: string, fileId: string) =>
     id,
     type: "image",
     fileId,
+    isDeleted: false,
+  } as unknown as ExcalidrawElement);
+
+const makeElement = (id: string, version = 1) =>
+  ({
+    id,
+    type: "rectangle",
+    version,
     isDeleted: false,
   } as unknown as ExcalidrawElement);
 
@@ -63,6 +77,7 @@ const resetState = () => {
     isOpen: false,
     onConfirm: () => {},
   });
+  resetUnsavedWorkTracking();
 };
 
 describe("hasUnsavedWork", () => {
@@ -116,6 +131,73 @@ describe("hasUnsavedWork", () => {
   it("reads the live quota atom by default", () => {
     appJotaiStore.set(localStorageQuotaExceededAtom, true);
     expect(hasUnsavedWork([], { fileStorage: makeFileManager() })).toBe(true);
+  });
+});
+
+describe("explicit-save tracking (unsaved = user hasn't clicked save)", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  it("an empty scene is never unsaved work", () => {
+    noteSceneChange([]);
+    expect(hasUnsavedExplicitWork()).toBe(false);
+    expect(hasUnsavedWork([], { fileStorage: makeFileManager() })).toBe(false);
+  });
+
+  it("drawn content with no explicit save is unsaved work", () => {
+    noteSceneChange([makeElement("a")]);
+    expect(hasUnsavedExplicitWork()).toBe(true);
+    expect(
+      hasUnsavedWork([makeElement("a")], { fileStorage: makeFileManager() }),
+    ).toBe(true);
+  });
+
+  it("autosave alone doesn't count -- only the user's save gesture does", () => {
+    noteSceneChange([makeElement("a")]);
+    noteSceneChange([makeElement("a", 2)]); // autosaved, still never saved
+    expect(hasUnsavedExplicitWork()).toBe(true);
+
+    markExplicitlySaved();
+    expect(hasUnsavedExplicitWork()).toBe(false);
+    expect(
+      hasUnsavedWork([makeElement("a", 2)], { fileStorage: makeFileManager() }),
+    ).toBe(false);
+  });
+
+  it("changes after the save make it unsaved again", () => {
+    noteSceneChange([makeElement("a")]);
+    markExplicitlySaved();
+    noteSceneChange([makeElement("a"), makeElement("b")]);
+    expect(hasUnsavedExplicitWork()).toBe(true);
+
+    markExplicitlySaved();
+    expect(hasUnsavedExplicitWork()).toBe(false);
+  });
+
+  it("deleted elements don't count as content", () => {
+    noteSceneChange([
+      { ...makeElement("a"), isDeleted: true } as unknown as ExcalidrawElement,
+    ]);
+    expect(hasUnsavedExplicitWork()).toBe(false);
+  });
+
+  it("collaborating suppresses the explicit-save signal, not files/quota", () => {
+    noteSceneChange([makeElement("a")]);
+    expect(
+      hasUnsavedWork([makeElement("a")], {
+        fileStorage: makeFileManager(),
+        isCollaborating: true,
+      }),
+    ).toBe(false);
+
+    appJotaiStore.set(localStorageQuotaExceededAtom, true);
+    expect(
+      hasUnsavedWork([], {
+        fileStorage: makeFileManager(),
+        isCollaborating: true,
+      }),
+    ).toBe(true);
   });
 });
 
