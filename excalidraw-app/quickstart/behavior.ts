@@ -44,6 +44,24 @@ export const isUserMark = (element: OrderedExcalidrawElement): boolean =>
   !element.isDeleted && USER_MARK_ELEMENT_TYPES.has(element.type);
 
 /**
+ * The first element in `elements` that is new relative to `knownIds` and
+ * reads as a user-authored mark, or null. New elements whose ids are already
+ * known -- e.g. system-inserted starter content baselined before the guide
+ * started watching -- don't count.
+ */
+export const findFirstUserMark = (
+  knownIds: ReadonlySet<string>,
+  elements: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement | null =>
+  elements.find(
+    (element) => !knownIds.has(element.id) && isUserMark(element),
+  ) ?? null;
+
+export const hasUserMark = (
+  elements: readonly OrderedExcalidrawElement[],
+): boolean => elements.some((element) => isUserMark(element));
+
+/**
  * Does this element read as a user-added label on a shape? A *bound* text
  * element (containerId set) from double-clicking a shape -- not any text on
  * the canvas, matching the PRD's "double-click a shape to name this step"
@@ -55,36 +73,178 @@ export const isUserLabel = (element: OrderedExcalidrawElement): boolean =>
   // one, where it may simply be absent (undefined) instead.
   !element.isDeleted && element.type === "text" && element.containerId != null;
 
-/**
- * Does this element read as the user connecting two shapes? An arrow bound
- * at *both* ends (startBinding and endBinding both set) to two *different*
- * shapes -- not just any arrow, matching the PRD's "connect two steps with
- * an arrow", and not a loop back onto the same shape, which doesn't connect
- * two steps.
- */
-export const isUserConnection = (element: OrderedExcalidrawElement): boolean =>
-  !element.isDeleted &&
-  element.type === "arrow" &&
-  element.startBinding != null &&
-  element.endBinding != null &&
-  element.startBinding.elementId !== element.endBinding.elementId;
+/** Same shape as findFirstUserMark, for the labeling hint's completion check. */
+export const findFirstUserLabel = (
+  knownIds: ReadonlySet<string>,
+  elements: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement | null =>
+  elements.find(
+    (element) => !knownIds.has(element.id) && isUserLabel(element),
+  ) ?? null;
+
+export const hasUserLabel = (
+  elements: readonly OrderedExcalidrawElement[],
+): boolean => elements.some((element) => isUserLabel(element));
 
 /**
- * Per-hint completion predicate: does this element satisfy the hint's
- * action? Only hints with real detection logic need an entry -- an
+ * Shapes the connecting hint is teaching. A bound label sits on one of
+ * these, and Excalidraw will not bind an arrow to a `containerId` text, so
+ * a drag that starts on the label leaves `startBinding` null even though
+ * the user clearly connected two steps.
+ */
+const CONNECTABLE_SHAPE_TYPES = new Set<string>([
+  "rectangle",
+  "diamond",
+  "ellipse",
+]);
+
+/** Scene-units slack around a shape, so an arrow that stops just short of
+ * the border still reads as touching it (binding itself is forgiving too). */
+const NEAR_SHAPE_PADDING = 16;
+
+type ScenePoint = { x: number; y: number };
+
+const pointHitsElement = (
+  point: ScenePoint,
+  element: OrderedExcalidrawElement,
+  padding: number,
+): boolean => {
+  const width = typeof element.width === "number" ? element.width : 0;
+  const height = typeof element.height === "number" ? element.height : 0;
+  return (
+    point.x >= element.x - padding &&
+    point.x <= element.x + width + padding &&
+    point.y >= element.y - padding &&
+    point.y <= element.y + height + padding
+  );
+};
+
+/** An arrow's two endpoints in scene coordinates, or null if unreadable. */
+const getArrowEndpoints = (
+  element: OrderedExcalidrawElement,
+): { start: ScenePoint; end: ScenePoint } | null => {
+  if (element.type !== "arrow" || !("points" in element)) {
+    return null;
+  }
+  const points = element.points;
+  if (!Array.isArray(points) || points.length < 2) {
+    return null;
+  }
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (
+    !Array.isArray(first) ||
+    !Array.isArray(last) ||
+    typeof first[0] !== "number" ||
+    typeof last[0] !== "number"
+  ) {
+    return null;
+  }
+  return {
+    start: { x: element.x + first[0], y: element.y + first[1] },
+    end: { x: element.x + last[0], y: element.y + last[1] },
+  };
+};
+
+/** A binding's shape id, resolving a bound label back to its container. */
+const resolveBoundShapeId = (
+  binding: { elementId?: string } | null | undefined,
+  elements: readonly OrderedExcalidrawElement[],
+): string | null => {
+  const id = binding?.elementId;
+  if (!id) {
+    return null;
+  }
+  const target = elements.find((element) => element.id === id);
+  if (target?.isDeleted) {
+    return null;
+  }
+  if (target?.type === "text" && target.containerId != null) {
+    return target.containerId;
+  }
+  return id;
+};
+
+/** The topmost shape an unbound endpoint is sitting on, or null. */
+const resolveShapeIdNearPoint = (
+  point: ScenePoint,
+  elements: readonly OrderedExcalidrawElement[],
+): string | null => {
+  for (let index = elements.length - 1; index >= 0; index -= 1) {
+    const element = elements[index];
+    if (element.isDeleted) {
+      continue;
+    }
+    if (element.type === "text" && element.containerId != null) {
+      const container = elements.find(
+        (item) => item.id === element.containerId,
+      );
+      if (
+        (container && pointHitsElement(point, container, NEAR_SHAPE_PADDING)) ||
+        pointHitsElement(point, element, NEAR_SHAPE_PADDING)
+      ) {
+        return element.containerId;
+      }
+    }
+    if (
+      CONNECTABLE_SHAPE_TYPES.has(element.type) &&
+      pointHitsElement(point, element, NEAR_SHAPE_PADDING)
+    ) {
+      return element.id;
+    }
+  }
+  return null;
+};
+
+/**
+ * Does this element read as the user connecting two shapes? An arrow bound
+ * at *both* ends to two *different* shapes counts, matching the PRD's
+ * "connect two steps with an arrow" -- a stray arrow on empty canvas or a
+ * loop back onto the same shape doesn't.
+ *
+ * Bindings alone aren't enough in practice: Excalidraw creates the arrow
+ * unbound and binds it afterwards, and a drag that begins on a shape's
+ * bound label never binds that end at all. So an arrow whose endpoints sit
+ * on two different shapes counts too, which is what the user actually did.
+ */
+export const isUserConnection = (
+  element: OrderedExcalidrawElement,
+  elements: readonly OrderedExcalidrawElement[] = [],
+): boolean => {
+  if (element.isDeleted || element.type !== "arrow") {
+    return false;
+  }
+
+  const endpoints = getArrowEndpoints(element);
+  const startId =
+    resolveBoundShapeId(element.startBinding, elements) ??
+    (endpoints ? resolveShapeIdNearPoint(endpoints.start, elements) : null);
+  const endId =
+    resolveBoundShapeId(element.endBinding, elements) ??
+    (endpoints ? resolveShapeIdNearPoint(endpoints.end, elements) : null);
+
+  return startId != null && endId != null && startId !== endId;
+};
+
+/** Same shape as findFirstUserMark, for the connecting hint's completion check. */
+export const findFirstUserConnection = (
+  knownIds: ReadonlySet<string>,
+  elements: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement | null =>
+  elements.find(
+    (element) =>
+      !knownIds.has(element.id) && isUserConnection(element, elements),
+  ) ?? null;
+
+export const hasUserConnection = (
+  elements: readonly OrderedExcalidrawElement[],
+): boolean => elements.some((element) => isUserConnection(element, elements));
+
+/**
+ * Per-hint completion check: what counts as "the user did this hint's
+ * action." Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
  * never complete, so IMPLEMENTED_HINTS and this map must stay in sync.
- *
- * Deliberately just a predicate, not "is this a *new* element" -- that
- * used to be baked in here (tracking known element ids), but an element
- * can exist, not yet satisfying the condition, for one check and then
- * satisfy it on a later check *with the same id* (Excalidraw assigns an
- * arrow its id before a drag resolves which shape it binds to). Tracking
- * "new ids" missed that case outright: the id was never new, only its
- * bindings changed. useQuickstartGuide's notifySceneChange instead diffs
- * *which ids currently satisfy this predicate* against the previous
- * check, which catches both a genuinely new satisfying element and an
- * existing one that just started satisfying it.
  *
  * "save" deliberately has no entry: unlike the first three, it doesn't
  * complete because of new *scene content* -- clicking Save, Cmd+S, or
@@ -93,9 +253,40 @@ export const isUserConnection = (element: OrderedExcalidrawElement): boolean =>
  * directly from those save gestures rather than from notifySceneChange.
  */
 export const HINT_COMPLETION: Partial<
-  Record<HintId, (element: OrderedExcalidrawElement) => boolean>
+  Record<
+    HintId,
+    {
+      hasAny: (elements: readonly OrderedExcalidrawElement[]) => boolean;
+      findFirstNew: (
+        knownIds: ReadonlySet<string>,
+        elements: readonly OrderedExcalidrawElement[],
+      ) => OrderedExcalidrawElement | null;
+      /**
+       * Does this one element satisfy the hint right now? Used to track
+       * *which* elements already counted, so an element that exists before
+       * it qualifies -- an arrow drawn first and bound a moment later --
+       * still completes the hint when it finally does.
+       */
+      isSatisfied: (
+        element: OrderedExcalidrawElement,
+        elements: readonly OrderedExcalidrawElement[],
+      ) => boolean;
+    }
+  >
 > = {
-  "shape-tool": isUserMark,
-  labeling: isUserLabel,
-  connecting: isUserConnection,
+  "shape-tool": {
+    hasAny: hasUserMark,
+    findFirstNew: findFirstUserMark,
+    isSatisfied: isUserMark,
+  },
+  labeling: {
+    hasAny: hasUserLabel,
+    findFirstNew: findFirstUserLabel,
+    isSatisfied: isUserLabel,
+  },
+  connecting: {
+    hasAny: hasUserConnection,
+    findFirstNew: findFirstUserConnection,
+    isSatisfied: isUserConnection,
+  },
 };

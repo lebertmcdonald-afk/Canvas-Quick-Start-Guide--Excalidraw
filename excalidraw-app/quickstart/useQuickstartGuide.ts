@@ -15,6 +15,11 @@ import {
 
 import type { HintId } from "./types";
 
+export type SceneChangeMeta = {
+  /** True when this scene write came from a collaborator, not the local user. */
+  isRemote?: boolean;
+};
+
 /**
  * Marks a hint completed and advances to the next one -- imperative, via
  * appJotaiStore directly, so it's usable both from inside the hook (where
@@ -77,21 +82,41 @@ export const useQuickstartGuide = (
   // any component that has this hook mounted.
   const [completedHints, setCompletedHints] = useAtom(completedHintsAtom);
 
-  // For the currently active hint, the ids of elements that satisfied its
-  // completion predicate (behavior.ts's HINT_COMPLETION) the last time
-  // this ran. Reset whenever the active hint itself changes -- a new
-  // hint's predicate is different, so its baseline has to be recaptured
-  // fresh, not carried over from the previous hint.
-  const satisfiedBaselineRef = useRef<{
-    hint: HintId | null;
-    ids: ReadonlySet<string>;
-  } | null>(null);
+  // Element ids on the canvas when scene detection last looked, while the
+  // guide is active. Null whenever it isn't, so users the guide doesn't
+  // apply to never pay for any of this.
+  const knownElementIdsRef = useRef<ReadonlySet<string> | null>(null);
   // After a Help-menu restart, existing canvas content is baselined and
   // must not instantly complete hints or dismiss the prompt (P1).
   const skipBaselineCompletionRef = useRef(false);
+  // Ids that already satisfied the *current* hint last time we looked.
+  // Re-seeded when the hint changes, so existing content doesn't finish
+  // the new hint -- but an arrow created unbound and bound a moment later
+  // (same id, newly qualifying) still does.
+  const satisfiedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
+  // Excalidraw can fire onChange more than once before React re-renders,
+  // so scene detection reads the live values here rather than the closure.
+  const activeHintRef = useRef(activeHint);
+  activeHintRef.current = activeHint;
 
   const guideApplies = (isNewUser === true || forcedVisible) && !ended;
   const isVisible = guideApplies;
+
+  const matchingIdsFor = (
+    hint: HintId | null,
+    elements: readonly OrderedExcalidrawElement[],
+  ): ReadonlySet<string> => {
+    const completion = hint ? HINT_COMPLETION[hint] : undefined;
+    if (!completion) {
+      return new Set<string>();
+    }
+    return new Set(
+      elements
+        .filter((element) => completion.isSatisfied(element, elements))
+        .map((element) => element.id),
+    );
+  };
 
   useEffect(() => {
     if (isNewUser === true) {
@@ -108,8 +133,12 @@ export const useQuickstartGuide = (
       const next = nextHint(completedHints);
       if (next) {
         setActiveHint(next);
+        activeHintRef.current = next;
+        satisfiedIdsRef.current = matchingIdsFor(next, lastElementsRef.current);
       }
     }
+    // matchingIdsFor only reads refs; listing it would re-run this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optedIn, ended, completedHints, activeHint, setActiveHint]);
 
   const optIn = () => setOptedIn(true);
@@ -118,8 +147,11 @@ export const useQuickstartGuide = (
   const endGuide = () => {
     setEnded(true);
     setActiveHint(null);
-    satisfiedBaselineRef.current = null;
+    activeHintRef.current = null;
+    knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = false;
+    satisfiedIdsRef.current = new Set();
+    lastElementsRef.current = [];
   };
 
   /**
@@ -132,12 +164,23 @@ export const useQuickstartGuide = (
     setEnded(false);
     setOptedIn(true);
     setCompletedHints([]);
-    setActiveHint(nextHint([]));
-    satisfiedBaselineRef.current = null;
+    const firstHint = nextHint([]);
+    setActiveHint(firstHint);
+    activeHintRef.current = firstHint;
+    knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = true;
+    satisfiedIdsRef.current = new Set();
   };
 
-  const completeHint = completeHintImperatively;
+  const completeHint = (hintId: HintId) => {
+    completeHintImperatively(hintId);
+    // Re-seed against the scene as it stands *now*, before React paints
+    // the new hint, so the next onChange can't mistake already-present
+    // content for the user doing the new step.
+    const next = appJotaiStore.get(activeHintAtom);
+    activeHintRef.current = next;
+    satisfiedIdsRef.current = matchingIdsFor(next, lastElementsRef.current);
+  };
 
   /**
    * Called on every scene change, wired into the existing onChange handler,
@@ -149,73 +192,88 @@ export const useQuickstartGuide = (
    *    the prompt gets out of the way on that first interaction (PRD P1).
    *  - if the active hint is one the user just satisfied, it completes and
    *    disappears on its own, never repeating. What counts as satisfying it
-   *    is per-hint (HINT_COMPLETION in behavior.ts); *which* elements newly
-   *    satisfy it is tracked here by diffing ids-that-satisfy-it against
-   *    the previous check, not by whether the id itself is new -- an arrow
-   *    can exist, unbound, for one check and become bound on a later one
-   *    with the same id (see the comment on HINT_COMPLETION).
+   *    is per-hint (HINT_COMPLETION in behavior.ts).
+   *  - a collaborator's edits are baselined, never treated as the local
+   *    user doing the step (meta.isRemote, set by Collab).
    */
-  const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
+  const notifySceneChange = (
+    elements: readonly OrderedExcalidrawElement[],
+    meta?: SceneChangeMeta,
+  ) => {
+    lastElementsRef.current = elements;
+    const isRemote = meta?.isRemote === true;
+
     if (!guideApplies) {
-      satisfiedBaselineRef.current = null;
+      knownElementIdsRef.current = null;
       return;
     }
 
     if (!optedIn) {
-      if (elements.length > 0) {
+      // A collaborator's edit must not dismiss the prompt: P1 is the
+      // *local* user starting to draw on their own.
+      if (elements.length > 0 && !isRemote) {
         endGuide();
       }
-      return;
-    }
-
-    const isMatch = activeHint ? HINT_COMPLETION[activeHint] : undefined;
-    const hintPending =
-      isMatch !== undefined &&
-      activeHint !== null &&
-      !completedHints.includes(activeHint);
-
-    if (!hintPending) {
-      satisfiedBaselineRef.current = null;
-      return;
-    }
-
-    const currentlySatisfyingIds = new Set(
-      elements
-        .filter((element) => isMatch(element))
-        .map((element) => element.id),
-    );
-
-    if (
-      satisfiedBaselineRef.current === null ||
-      satisfiedBaselineRef.current.hint !== activeHint
-    ) {
-      // First change since this hint became active: anything already
-      // satisfying it predates our watching for *this* hint specifically,
-      // so it's the starting baseline -- unless something already
-      // satisfies it, which completes the hint outright (no point
-      // teaching a finished step). Skipped right after a Help restart, so
-      // pre-existing content can't instantly complete the reopened guide.
-      const shouldSkip = skipBaselineCompletionRef.current;
-      skipBaselineCompletionRef.current = false;
-      satisfiedBaselineRef.current = {
-        hint: activeHint,
-        ids: currentlySatisfyingIds,
-      };
-      if (!shouldSkip && currentlySatisfyingIds.size > 0) {
-        completeHint(activeHint as HintId);
+      if (isRemote) {
+        knownElementIdsRef.current = new Set(
+          elements.map((element) => element.id),
+        );
       }
       return;
     }
 
-    const newlySatisfied = [...currentlySatisfyingIds].some(
-      (id) => !satisfiedBaselineRef.current!.ids.has(id),
+    const currentHint = activeHintRef.current;
+    const completion = currentHint ? HINT_COMPLETION[currentHint] : undefined;
+    const hintPending =
+      completion !== undefined &&
+      currentHint !== null &&
+      !completedHints.includes(currentHint);
+    const matchingIds = matchingIdsFor(currentHint, elements);
+
+    if (isRemote) {
+      // Baseline the collaborator's work -- including anything of theirs
+      // that happens to satisfy this hint -- so only a later local action
+      // can complete it.
+      knownElementIdsRef.current = new Set(
+        elements.map((element) => element.id),
+      );
+      satisfiedIdsRef.current = new Set([
+        ...satisfiedIdsRef.current,
+        ...matchingIds,
+      ]);
+      return;
+    }
+
+    if (knownElementIdsRef.current === null) {
+      // First change since detection started: what's already on the canvas
+      // predates the guide, so it baselines instead of counting as new --
+      // unless it already satisfies the active hint outright (no point
+      // teaching a finished step).
+      knownElementIdsRef.current = new Set(
+        elements.map((element) => element.id),
+      );
+      satisfiedIdsRef.current = matchingIds;
+      if (skipBaselineCompletionRef.current) {
+        skipBaselineCompletionRef.current = false;
+        return;
+      }
+      if (hintPending && completion.hasAny(elements)) {
+        completeHint(currentHint as HintId);
+      }
+      return;
+    }
+
+    // Newly *satisfying*, not merely newly created: Excalidraw draws an
+    // arrow unbound and binds it afterwards, so waiting for a new id
+    // alone leaves the connecting hint stuck on screen forever.
+    const previouslySatisfied = satisfiedIdsRef.current;
+    const newlySatisfied = [...matchingIds].some(
+      (id) => !previouslySatisfied.has(id),
     );
-    satisfiedBaselineRef.current = {
-      hint: activeHint,
-      ids: currentlySatisfyingIds,
-    };
-    if (newlySatisfied) {
-      completeHint(activeHint as HintId);
+    knownElementIdsRef.current = new Set(elements.map((element) => element.id));
+    satisfiedIdsRef.current = matchingIds;
+    if (hintPending && newlySatisfied) {
+      completeHint(currentHint as HintId);
     }
   };
 

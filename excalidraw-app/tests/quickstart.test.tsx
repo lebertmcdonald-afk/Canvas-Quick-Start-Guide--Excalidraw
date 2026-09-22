@@ -8,15 +8,19 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { Excalidraw } from "@excalidraw/excalidraw";
+
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
+import { AppMainMenu } from "../components/AppMainMenu";
 import {
-  isUserConnection,
-  isUserLabel,
-  isUserMark,
+  findFirstUserConnection,
+  findFirstUserLabel,
+  findFirstUserMark,
   nextHint,
 } from "../quickstart/behavior";
+import { QuickstartHelpButton } from "../quickstart/QuickstartHelpButton";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
 import {
   activeHintAtom,
@@ -114,32 +118,125 @@ describe("quickstart behavior logic", () => {
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
-  it("isUserMark identifies an authored shape, not deleted or import-style content", () => {
-    expect(isUserMark(makeElement("a", "rectangle"))).toBe(true);
-    expect(isUserMark(makeElement("a", "rectangle", { isDeleted: true }))).toBe(
-      false,
-    );
+  it("findFirstUserMark detects a newly created shape, not known or deleted elements", () => {
+    const known = new Set(["a"]);
+    expect(
+      findFirstUserMark(known, [
+        makeElement("a", "rectangle"),
+        makeElement("b", "ellipse"),
+      ])?.id,
+    ).toBe("b");
+    // already-known id: not new
+    expect(
+      findFirstUserMark(known, [makeElement("a", "rectangle")]),
+    ).toBeNull();
+    // deleted: not a mark
+    expect(
+      findFirstUserMark(known, [
+        makeElement("b", "rectangle", { isDeleted: true }),
+      ]),
+    ).toBeNull();
     // import-style content: not a user mark
-    expect(isUserMark(makeElement("a", "image"))).toBe(false);
+    expect(findFirstUserMark(known, [makeElement("b", "image")])).toBeNull();
   });
 
-  it("isUserLabel identifies a bound text element, not a freestanding one", () => {
-    expect(isUserLabel(makeLabel("a", "shape1"))).toBe(true);
+  it("findFirstUserLabel detects a newly bound text element, not a freestanding one", () => {
+    const known = new Set(["a"]);
+    expect(
+      findFirstUserLabel(known, [
+        makeElement("a", "rectangle"),
+        makeLabel("b", "shape1"),
+      ])?.id,
+    ).toBe("b");
     // freestanding text (no container): not a label
-    expect(isUserLabel(makeElement("a", "text"))).toBe(false);
-    expect(isUserLabel(makeLabel("a", "shape1", true))).toBe(false);
+    expect(findFirstUserLabel(known, [makeElement("b", "text")])).toBeNull();
+    // already-known id: not new
+    expect(findFirstUserLabel(known, [makeLabel("a", "shape1")])).toBeNull();
+    // deleted: not a label
+    expect(
+      findFirstUserLabel(known, [makeLabel("b", "shape1", true)]),
+    ).toBeNull();
   });
 
-  it("isUserConnection identifies an arrow bound at both ends to different shapes", () => {
-    expect(isUserConnection(makeArrow("c", "a", "b"))).toBe(true);
+  it("findFirstUserConnection detects an arrow bound at both ends to different shapes", () => {
+    const known = new Set(["a", "b"]);
+    expect(
+      findFirstUserConnection(known, [
+        makeElement("a", "rectangle"),
+        makeElement("b", "ellipse"),
+        makeArrow("c", "a", "b"),
+      ])?.id,
+    ).toBe("c");
     // only one end bound: not a connection
-    expect(isUserConnection(makeArrow("c", "a", null))).toBe(false);
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", null)]),
+    ).toBeNull();
     // neither end bound: not a connection
-    expect(isUserConnection(makeArrow("c", null, null))).toBe(false);
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", null, null)]),
+    ).toBeNull();
     // both ends bound to the *same* shape: doesn't connect two steps
-    expect(isUserConnection(makeArrow("c", "a", "a"))).toBe(false);
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", "a")]),
+    ).toBeNull();
+    // already-known id: not new
+    expect(
+      findFirstUserConnection(known, [makeArrow("a", "a", "b")]),
+    ).toBeNull();
     // deleted: not a connection
-    expect(isUserConnection(makeArrow("c", "a", "b", true))).toBe(false);
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", "b", true)]),
+    ).toBeNull();
+    // an arrow whose endpoints sit on two different shapes counts even
+    // with no bindings -- Excalidraw leaves a drag that starts on a
+    // shape's bound label unbound, and the user still connected two steps
+    expect(
+      findFirstUserConnection(new Set(), [
+        makeElement("el1", "rectangle", {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("el2", "rectangle", {
+          x: 300,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("link", "arrow", {
+          x: 50,
+          y: 50,
+          points: [
+            [0, 0],
+            [280, 0],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ])?.id,
+    ).toBe("link");
+    // ...but an arrow drawn on empty canvas still isn't a connection
+    expect(
+      findFirstUserConnection(new Set(), [
+        makeElement("el1", "rectangle", {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("stray", "arrow", {
+          x: 600,
+          y: 600,
+          points: [
+            [0, 0],
+            [80, 40],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -192,16 +289,20 @@ describe("quickstart guide UI", () => {
     expect(onEndGuide).toHaveBeenCalledTimes(1);
   });
 
-  it('the prompt\'s "How to start" link opens the right page in a new tab', () => {
+  it('the prompt no longer carries the "How to start" link (it moved to help)', () => {
     renderUi({ optedIn: false });
-    const link = document.querySelector<HTMLAnchorElement>(
-      '[data-testid="quickstart-how-to-start"]',
+    expect(
+      document.querySelector('[data-testid="quickstart-how-to-start"]'),
+    ).toBe(null);
+    expect(document.body).not.toHaveTextContent("How to start");
+  });
+
+  it("the shape-tool hint's End guide button matches the Share button style", () => {
+    renderUi({ optedIn: true, activeHint: "shape-tool" });
+    const endGuide = document.querySelector<HTMLButtonElement>(
+      '[data-testid="quickstart-end-guide"]',
     )!;
-    expect(link.href).toBe("https://plus.excalidraw.com/how-to-start");
-    expect(link.target).toBe("_blank");
-    // new-tab links without rel="noopener" let the opened page reach back
-    // into window.opener -- a real (if minor) security hole
-    expect(link.rel).toContain("noopener");
+    expect(endGuide.classList.contains("quickstart-btn--primary")).toBe(true);
   });
 
   it("the labeling hint shows PRD copy and an explicit end control", () => {
@@ -511,37 +612,29 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     ]);
   });
 
-  it("an arrow that starts unbound and becomes bound with the SAME id completes connecting (regression)", () => {
-    // Reproduces a real bug found in-browser: Excalidraw assigns an
-    // arrow's id before a drag resolves which shape it binds to, so
-    // onChange can fire while it's still unbound. The old "is this id
-    // new" check baselined that id as "already known" right then, and
-    // permanently missed it becoming bound later -- same id throughout,
-    // only its bindings changed. This must complete via satisfaction
-    // (behavior.ts's HINT_COMPLETION diffed in useQuickstartGuide), not
-    // via id novelty.
+  it("an arrow created unbound and bound a moment later still completes connecting", () => {
     const { result } = renderGuideHook(true);
     completeShapeToolAndLabeling(result);
 
-    // the arrow appears, unbound -- e.g. mid-drag, before it resolves a
-    // binding target
+    const shapes = [
+      makeElement("el1", "rectangle"),
+      makeElement("el2", "ellipse"),
+      makeLabel("lbl1", "el1"),
+    ];
+    // Excalidraw inserts the arrow first...
     act(() =>
       result.current.notifySceneChange([
-        makeElement("el1", "rectangle"),
-        makeElement("el2", "ellipse"),
-        makeLabel("lbl1", "el1"),
-        makeArrow("dragging", null, null),
+        ...shapes,
+        makeArrow("arrow1", null, null),
       ]),
     );
     expect(result.current.activeHint).toBe("connecting");
 
-    // the SAME arrow id, now bound at both ends to two different shapes
+    // ...then binds that same id, which is when it becomes a connection
     act(() =>
       result.current.notifySceneChange([
-        makeElement("el1", "rectangle"),
-        makeElement("el2", "ellipse"),
-        makeLabel("lbl1", "el1"),
-        makeArrow("dragging", "el1", "el2"),
+        ...shapes,
+        makeArrow("arrow1", "el1", "el2"),
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([
@@ -549,6 +642,81 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       "labeling",
       "connecting",
     ]);
+    expect(result.current.activeHint).toBe("save");
+  });
+
+  it("an arrow whose endpoints sit on two shapes completes connecting without bindings", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    const shapes = [
+      makeElement("el1", "rectangle", { x: 0, y: 0, width: 100, height: 100 }),
+      makeElement("el2", "ellipse", { x: 300, y: 0, width: 100, height: 100 }),
+      makeLabel("lbl1", "el1"),
+    ];
+    act(() => result.current.notifySceneChange(shapes));
+    expect(result.current.activeHint).toBe("connecting");
+
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeElement("drawn", "arrow", {
+          x: 50,
+          y: 50,
+          points: [
+            [0, 0],
+            [280, 0],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBe("save");
+  });
+
+  it("a remote collaborator's edits don't complete a hint or dismiss the prompt", () => {
+    const { result } = renderGuideHook(true);
+    expect(result.current.isVisible).toBe(true);
+
+    // P1 is the *local* user starting to draw; a collaborator's shape
+    // must leave the opt-in prompt up
+    act(() =>
+      result.current.notifySceneChange([makeElement("remote1", "rectangle")], {
+        isRemote: true,
+      }),
+    );
+    expect(appJotaiStore.get(guideEndedAtom)).toBe(false);
+    expect(result.current.isVisible).toBe(true);
+
+    optInAndShowShapeHint(result);
+    act(() =>
+      result.current.notifySceneChange(
+        [
+          makeElement("remote1", "rectangle"),
+          makeElement("remote2", "diamond"),
+        ],
+        { isRemote: true },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+    expect(result.current.activeHint).toBe("shape-tool");
+
+    // the local user's own mark still completes it
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("remote1", "rectangle"),
+        makeElement("remote2", "diamond"),
+        makeElement("local1", "ellipse"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
   });
 
   const completeThroughConnecting = (result: {
@@ -812,5 +980,122 @@ describe("quickstart restart from Help", () => {
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
     expect(result.current.activeHint).toBe("labeling");
+  });
+});
+
+describe("quickstart actions in the shortcuts-and-help dialog", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it('renders "Show guide" and the moved "Getting started" link, styled like the other help buttons', async () => {
+    const onRestart = vi.fn();
+    render(
+      <Excalidraw>
+        <QuickstartHelpButton onRestart={onRestart} />
+      </Excalidraw>,
+    );
+    await waitFor(() => {
+      // window.h exists (empty) as soon as the package module loads; the
+      // app reference only appears once the editor has mounted
+      expect(window.h.app).toBeTruthy();
+    });
+    act(() => {
+      window.h.app.setOpenDialog({ name: "help" });
+    });
+
+    const link = await waitFor(() => {
+      const el = document.querySelector<HTMLAnchorElement>(
+        '[data-testid="quickstart-how-to-start"]',
+      );
+      if (!el) {
+        throw new Error("how-to-start link not in help dialog yet");
+      }
+      return el;
+    });
+
+    // the moved link keeps its new-tab safety and blends in with the
+    // dialog's own Documentation / Blog / GitHub / YouTube buttons
+    expect(link.href).toBe("https://plus.excalidraw.com/how-to-start");
+    // new-tab links without rel="noopener" let the opened page reach back
+    // into window.opener -- a real (if minor) security hole
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toContain("noopener");
+    expect(link.classList.contains("HelpDialog__btn")).toBe(true);
+    expect(link.textContent).toContain("Getting started");
+
+    const restart = document.querySelector<HTMLButtonElement>(
+      '[data-testid="quickstart-restart"]',
+    )!;
+    expect(restart.textContent).toContain("Show guide");
+    fireEvent.click(restart);
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("save hint completion from the main menu", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it("a real click on a save menu item completes the save hint", async () => {
+    appJotaiStore.set(guideOptedInAtom, true);
+    appJotaiStore.set(completedHintsAtom, [
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    appJotaiStore.set(activeHintAtom, "save");
+
+    // <MainMenu>'s children are tunneled into the editor's tree, so this has
+    // to go through the real menu: a handler wrapped around <MainMenu> in
+    // AppMainMenu would never see the click
+    render(
+      <Provider store={appJotaiStore}>
+        <Excalidraw>
+          <AppMainMenu
+            onCollabDialogOpen={() => {}}
+            isCollaborating={false}
+            isCollabEnabled={false}
+            theme="light"
+            refresh={() => {}}
+          />
+        </Excalidraw>
+      </Provider>,
+    );
+
+    const trigger = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        '[data-testid="main-menu-trigger"]',
+      );
+      if (!el) {
+        throw new Error("main menu trigger not mounted yet");
+      }
+      return el;
+    });
+    fireEvent.click(trigger);
+
+    const saveItem = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        '[data-testid="image-export-button"]',
+      );
+      if (!el) {
+        throw new Error("save menu item not open yet");
+      }
+      return el;
+    });
+    fireEvent.click(saveItem);
+
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+      "save",
+    ]);
+    expect(appJotaiStore.get(activeHintAtom)).toBeNull();
   });
 });
