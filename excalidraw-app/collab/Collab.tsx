@@ -87,10 +87,7 @@ import {
   saveUsernameToLocalStorage,
 } from "../data/localStorage";
 import { resetBrowserStateVersions } from "../data/tabSync";
-import {
-  beginRemoteSceneUpdate,
-  endRemoteSceneUpdate,
-} from "../quickstart/remoteScene";
+import { markRemoteSceneUpdate } from "../quickstart/remoteScene";
 
 import { collabErrorIndicatorAtom } from "./CollabError";
 import Portal from "./Portal";
@@ -814,15 +811,15 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   private handleRemoteSceneUpdate = (
     elements: ReconciledExcalidrawElement[],
   ) => {
-    beginRemoteSceneUpdate();
-    try {
-      this.excalidrawAPI.updateScene({
-        elements,
-        captureUpdate: CaptureUpdateAction.NEVER,
-      });
-    } finally {
-      endRemoteSceneUpdate();
-    }
+    // Recorded by id+version *before* updateScene(), not wrapped
+    // synchronously around it -- onChange fires asynchronously relative to
+    // this call, well after any synchronous flag would already be reset
+    // (see remoteScene.ts).
+    markRemoteSceneUpdate(elements);
+    this.excalidrawAPI.updateScene({
+      elements,
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
 
     this.loadImageFiles();
   };

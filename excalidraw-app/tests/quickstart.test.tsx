@@ -680,6 +680,11 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     expect(result.current.activeHint).toBe("save");
   });
 
+  const remoteMeta = (remoteIds: readonly string[]) => ({
+    isRemoteElement: (element: OrderedExcalidrawElement) =>
+      remoteIds.includes(element.id),
+  });
+
   it("a remote collaborator's edits don't complete a hint or dismiss the prompt", () => {
     const { result } = renderGuideHook(true);
     expect(result.current.isVisible).toBe(true);
@@ -687,9 +692,10 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     // P1 is the *local* user starting to draw; a collaborator's shape
     // must leave the opt-in prompt up
     act(() =>
-      result.current.notifySceneChange([makeElement("remote1", "rectangle")], {
-        isRemote: true,
-      }),
+      result.current.notifySceneChange(
+        [makeElement("remote1", "rectangle")],
+        remoteMeta(["remote1"]),
+      ),
     );
     expect(appJotaiStore.get(guideEndedAtom)).toBe(false);
     expect(result.current.isVisible).toBe(true);
@@ -701,22 +707,54 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
           makeElement("remote1", "rectangle"),
           makeElement("remote2", "diamond"),
         ],
-        { isRemote: true },
+        remoteMeta(["remote1", "remote2"]),
       ),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
     expect(result.current.activeHint).toBe("shape-tool");
 
-    // the local user's own mark still completes it
+    // the local user's own mark still completes it, even in the same
+    // batch as the collaborator's still-present elements
+    act(() =>
+      result.current.notifySceneChange(
+        [
+          makeElement("remote1", "rectangle"),
+          makeElement("remote2", "diamond"),
+          makeElement("local1", "ellipse"),
+        ],
+        remoteMeta(["remote1", "remote2"]),
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
+  });
+
+  it("a stale remote element sitting unchanged doesn't poison later local completions (regression)", () => {
+    // Guards the whole-batch-boolean bug: onChange always reports the
+    // *full* scene, not a diff, so once any element had ever been
+    // remote, a coarse "is this batch remote" flag would misread every
+    // later onChange as remote forever, breaking local completion for
+    // the rest of the session.
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+
+    act(() =>
+      result.current.notifySceneChange(
+        [makeElement("remote1", "rectangle")],
+        remoteMeta(["remote1"]),
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+
+    // remote1 is still present and unchanged; meta no longer marks
+    // anything remote (simulating time passing, a purely local onChange)
     act(() =>
       result.current.notifySceneChange([
         makeElement("remote1", "rectangle"),
-        makeElement("remote2", "diamond"),
         makeElement("local1", "ellipse"),
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(result.current.activeHint).toBe("labeling");
   });
 
   const completeThroughConnecting = (result: {

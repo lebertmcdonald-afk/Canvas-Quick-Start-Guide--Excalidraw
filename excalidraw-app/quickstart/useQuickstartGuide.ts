@@ -16,8 +16,16 @@ import {
 import type { HintId } from "./types";
 
 export type SceneChangeMeta = {
-  /** True when this scene write came from a collaborator, not the local user. */
-  isRemote?: boolean;
+  /**
+   * Was this specific element's current version just written by a remote
+   * collaborator update, rather than the local user? Checked per element,
+   * not once for the whole onChange batch -- onChange always reports the
+   * *full* current scene, not a diff, so a single whole-batch boolean
+   * would misread every future onChange as "remote" forever the moment
+   * any one element had ever been touched by a collaborator and then sat
+   * unchanged on the canvas.
+   */
+  isRemoteElement?: (element: OrderedExcalidrawElement) => boolean;
 };
 
 /**
@@ -194,14 +202,17 @@ export const useQuickstartGuide = (
    *    disappears on its own, never repeating. What counts as satisfying it
    *    is per-hint (HINT_COMPLETION in behavior.ts).
    *  - a collaborator's edits are baselined, never treated as the local
-   *    user doing the step (meta.isRemote, set by Collab).
+   *    user doing the step (meta.isRemoteElement, set by Collab via
+   *    remoteScene.ts's id+version tracking -- checked per element, since
+   *    onChange always reports the full scene, not a diff).
    */
   const notifySceneChange = (
     elements: readonly OrderedExcalidrawElement[],
     meta?: SceneChangeMeta,
   ) => {
     lastElementsRef.current = elements;
-    const isRemote = meta?.isRemote === true;
+    const isRemote = (element: OrderedExcalidrawElement): boolean =>
+      meta?.isRemoteElement?.(element) === true;
 
     if (!guideApplies) {
       knownElementIdsRef.current = null;
@@ -210,15 +221,15 @@ export const useQuickstartGuide = (
 
     if (!optedIn) {
       // A collaborator's edit must not dismiss the prompt: P1 is the
-      // *local* user starting to draw on their own.
-      if (elements.length > 0 && !isRemote) {
+      // *local* user starting to draw on their own -- so this only fires
+      // once at least one element isn't attributable to a remote write.
+      if (elements.some((element) => !isRemote(element))) {
         endGuide();
+        return;
       }
-      if (isRemote) {
-        knownElementIdsRef.current = new Set(
-          elements.map((element) => element.id),
-        );
-      }
+      knownElementIdsRef.current = new Set(
+        elements.map((element) => element.id),
+      );
       return;
     }
 
@@ -229,26 +240,23 @@ export const useQuickstartGuide = (
       currentHint !== null &&
       !completedHints.includes(currentHint);
     const matchingIds = matchingIdsFor(currentHint, elements);
-
-    if (isRemote) {
-      // Baseline the collaborator's work -- including anything of theirs
-      // that happens to satisfy this hint -- so only a later local action
-      // can complete it.
-      knownElementIdsRef.current = new Set(
-        elements.map((element) => element.id),
-      );
-      satisfiedIdsRef.current = new Set([
-        ...satisfiedIdsRef.current,
-        ...matchingIds,
-      ]);
-      return;
-    }
+    const elementById = new Map(
+      elements.map((element) => [element.id, element]),
+    );
+    // Is at least one of these matching ids attributable to the local
+    // user, not solely to a remote collaborator's write?
+    const hasLocalMatch = (ids: Iterable<string>) =>
+      [...ids].some((id) => {
+        const element = elementById.get(id);
+        return element !== undefined && !isRemote(element);
+      });
 
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
       // predates the guide, so it baselines instead of counting as new --
-      // unless it already satisfies the active hint outright (no point
-      // teaching a finished step).
+      // unless it already satisfies the active hint outright *locally*
+      // (no point teaching a finished step, but a collaborator's
+      // pre-existing work alone must not finish it for the local user).
       knownElementIdsRef.current = new Set(
         elements.map((element) => element.id),
       );
@@ -257,7 +265,7 @@ export const useQuickstartGuide = (
         skipBaselineCompletionRef.current = false;
         return;
       }
-      if (hintPending && completion.hasAny(elements)) {
+      if (hintPending && hasLocalMatch(matchingIds)) {
         completeHint(currentHint as HintId);
       }
       return;
@@ -265,14 +273,16 @@ export const useQuickstartGuide = (
 
     // Newly *satisfying*, not merely newly created: Excalidraw draws an
     // arrow unbound and binds it afterwards, so waiting for a new id
-    // alone leaves the connecting hint stuck on screen forever.
+    // alone leaves the connecting hint stuck on screen forever. Baselined
+    // either way (remote or local) so it never retriggers -- only a
+    // *locally* newly-satisfying element actually completes the hint.
     const previouslySatisfied = satisfiedIdsRef.current;
-    const newlySatisfied = [...matchingIds].some(
+    const newlySatisfiedIds = [...matchingIds].filter(
       (id) => !previouslySatisfied.has(id),
     );
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
     satisfiedIdsRef.current = matchingIds;
-    if (hintPending && newlySatisfied) {
+    if (hintPending && hasLocalMatch(newlySatisfiedIds)) {
       completeHint(currentHint as HintId);
     }
   };
