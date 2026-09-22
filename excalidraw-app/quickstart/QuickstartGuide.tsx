@@ -158,14 +158,25 @@ const BUTTON_STYLES = `
  * showing, so it leaves no trace once the guide moves on or ends -- and
  * box-shadow can't shift layout or intercept pointer events on the tools.
  */
-const SHAPE_TOOL_HIGHLIGHT_STYLES = `
+const HINT_PULSE = `
 @keyframes quickstart-hint-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
   50% { box-shadow: 0 0 0 6px rgba(105, 101, 219, 0.5); }
 }
+`;
+
+const SHAPE_TOOL_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
 .excalidraw button[data-testid="toolbar-rectangle"],
 .excalidraw button[data-testid="toolbar-diamond"],
 .excalidraw button[data-testid="toolbar-ellipse"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
+const ARROW_TOOL_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw button[data-testid="toolbar-arrow"] {
   animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
 }
 `;
@@ -215,21 +226,15 @@ export const QuickstartGuide: React.FC<{
     );
   }
 
-  if (activeHint === "shape-tool") {
-    return createPortal(
+  const hintCard = (testid: string, copy: string, highlight?: string) =>
+    createPortal(
       <>
         <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
-        <style data-testid="quickstart-shape-tool-styles">
-          {SHAPE_TOOL_HIGHLIGHT_STYLES}
-        </style>
-        <div
-          data-testid="quickstart-hint-shape-tool"
-          style={positionedOverlayStyle}
-        >
-          <span>
-            Pick a highlighted shape tool in the toolbar, then draw your first
-            shape.
-          </span>
+        {highlight && (
+          <style data-testid={`${testid}-styles`}>{highlight}</style>
+        )}
+        <div data-testid={testid} style={positionedOverlayStyle}>
+          <span>{copy}</span>
           <button
             className="quickstart-btn"
             data-testid="quickstart-end-guide"
@@ -240,6 +245,28 @@ export const QuickstartGuide: React.FC<{
         </div>
       </>,
       document.body,
+    );
+
+  if (activeHint === "shape-tool") {
+    return hintCard(
+      "quickstart-hint-shape-tool",
+      "Pick a highlighted shape tool in the toolbar, then draw your first shape.",
+      SHAPE_TOOL_HIGHLIGHT_STYLES,
+    );
+  }
+
+  if (activeHint === "labeling") {
+    return hintCard(
+      "quickstart-hint-labeling",
+      "Select the shape and press Enter to add a label.",
+    );
+  }
+
+  if (activeHint === "connecting") {
+    return hintCard(
+      "quickstart-hint-connecting",
+      "Draw an arrow to connect two shapes.",
+      ARROW_TOOL_HIGHLIGHT_STYLES,
     );
   }
 

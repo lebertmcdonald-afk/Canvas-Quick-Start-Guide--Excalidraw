@@ -7,6 +7,7 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 | `useIsNewCanvasUser.ts` | Eligibility check (3 signals) | Day 15 — Lebert |
 | `useQuickstartGuide.ts` | Guide behavior: opt-in, first hint, end-guide, exposure→seen-flag, scene detection | Day 16 — Jason |
 | `QuickstartGuide.tsx` | Prompt + hint UI (incl. the shape-tool toolbar highlight) | Day 16 — Jason |
+| `QuickstartHelpButton.tsx` | Help dialog "Getting started" button to reopen a dismissed guide | Day 18 — Mofazzal |
 | `behavior.ts` | Pure logic: what counts as a user-authored mark, hint progression | Day 16 — Jason |
 | `types.ts` | Shared types: hint IDs, experiment group, event names | infra |
 | `state.ts` | Shared guide state (Jotai atoms) | infra |
@@ -21,9 +22,9 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
   - **Prompt-clear (PRD P1):** a user who never opted in gets the prompt out of the way on their first canvas interaction — any content counts.
   - **Hint completion (PRD P0):** mark-based. Only elements the user authored themselves (shapes, arrows, lines, freedraw, text — not images/imports, per PRD §3) complete the hint, and only once; elements that predate opting in are baselined, not counted.
 
-- **Not built yet:** the `labeling`, `connecting`, and `save` hints (add the id to `IMPLEMENTED_HINTS` in `behavior.ts` plus rendering in `QuickstartGuide.tsx`, and the chain advances automatically), collaborator/import authorship beyond the mark-type exclusion, save-state confirmation, and analytics wiring for the five `QuickstartEventName`s:
-  - Day 17 (Abdoul): hardening, or the next hint (`labeling`) if Day 16 lands clean.
-  - Day 18 (Mofazzal): full hint chain end-to-end (`HINT_SEQUENCE[1..3]`), user-authored vs. system/import/collaborator action detection, save-state confirmation.
+- **Help-menu restart (done):** a "Getting started" button in the Help dialog header (same `HelpDialog__btn` style as Documentation / Blog / GitHub / YouTube) reopens the guide after dismiss, including for returning browsers that would otherwise fail eligibility. Existing canvas content is baselined so it doesn't instantly complete the first hint.
+- **Day 18 (done, minus save):** `labeling` and `connecting` are on the chain. After a shape, the labeling hint waits for bound, non-empty text *and* the text editor to close (Enter → type → Escape). Connecting requires an arrow bound at both ends to two different shapes -- a stray unbound arrow, a one-sided bind, or a self-loop does not count. Starter/import labels and connections are baselined the same way as marks, so they don't auto-complete the hint. Save-state confirmation is still not implemented.
+- **Not built yet:** the `save` hint, collaborator authorship beyond the baseline/mark-type exclusion, and analytics wiring for the five `QuickstartEventName`s:
   - Day 20 (Jason): analytics wiring for the five `QuickstartEventName`s, control/treatment comparison.
 
 ## Conventions

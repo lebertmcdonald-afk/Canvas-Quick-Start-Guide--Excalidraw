@@ -29,9 +29,11 @@
       border: 1px solid var(--background);
       border-radius: var(--border-radius-lg);
       color: var(--text-primary-color);
+      font-family: inherit;
       font-weight: 600;
       font-size: 0.75rem;
       letter-spacing: 0.4px;
+      cursor: pointer;
 
       @at-root .excalidraw.theme--dark#{&} {
         --background: var(--color-surface-high);

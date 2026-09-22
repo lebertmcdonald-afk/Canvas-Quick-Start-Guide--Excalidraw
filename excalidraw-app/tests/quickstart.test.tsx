@@ -11,29 +11,43 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
-import { findFirstUserMark, nextHint } from "../quickstart/behavior";
+import {
+  findConnectingArrowIds,
+  findFirstUserMark,
+  findLabeledContainerIds,
+  nextHint,
+} from "../quickstart/behavior";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
 import {
   activeHintAtom,
   completedHintsAtom,
   guideEndedAtom,
+  guideForcedVisibleAtom,
   guideOptedInAtom,
 } from "../quickstart/state";
 import { useQuickstartGuide } from "../quickstart/useQuickstartGuide";
 
+import type { HintId } from "../quickstart/types";
 import type { ReactNode } from "react";
 
 const makeElement = (
   id: string,
   type: OrderedExcalidrawElement["type"],
-  isDeleted = false,
-) => ({ id, type, isDeleted } as unknown as OrderedExcalidrawElement);
+  extras: Record<string, unknown> = {},
+) =>
+  ({
+    id,
+    type,
+    isDeleted: extras.isDeleted ?? false,
+    ...extras,
+  } as unknown as OrderedExcalidrawElement);
 
 const resetGuideState = () => {
   appJotaiStore.set(guideOptedInAtom, false);
   appJotaiStore.set(activeHintAtom, null);
   appJotaiStore.set(completedHintsAtom, []);
   appJotaiStore.set(guideEndedAtom, false);
+  appJotaiStore.set(guideForcedVisibleAtom, false);
 };
 
 const renderGuideHook = (isNewUser: boolean | null) => {
@@ -62,7 +76,9 @@ const optInAndShowShapeHint = (result: {
 describe("quickstart behavior logic", () => {
   it("nextHint returns the first implemented, uncompleted hint", () => {
     expect(nextHint([])).toBe("shape-tool");
-    expect(nextHint(["shape-tool"])).toBeNull();
+    expect(nextHint(["shape-tool"])).toBe("labeling");
+    expect(nextHint(["shape-tool", "labeling"])).toBe("connecting");
+    expect(nextHint(["shape-tool", "labeling", "connecting"])).toBeNull();
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
@@ -80,10 +96,59 @@ describe("quickstart behavior logic", () => {
     ).toBeNull();
     // deleted: not a mark
     expect(
-      findFirstUserMark(known, [makeElement("b", "rectangle", true)]),
+      findFirstUserMark(known, [
+        makeElement("b", "rectangle", { isDeleted: true }),
+      ]),
     ).toBeNull();
     // import-style content: not a user mark
     expect(findFirstUserMark(known, [makeElement("b", "image")])).toBeNull();
+  });
+
+  it("findLabeledContainerIds requires bound, non-empty text on a shape", () => {
+    const shape = makeElement("shape", "rectangle");
+    expect(
+      findLabeledContainerIds([
+        shape,
+        makeElement("empty", "text", { containerId: "shape", text: "" }),
+      ]).size,
+    ).toBe(0);
+    expect(
+      findLabeledContainerIds([
+        shape,
+        makeElement("label", "text", { containerId: "shape", text: "Start" }),
+      ]).has("shape"),
+    ).toBe(true);
+    expect(
+      findLabeledContainerIds([
+        makeElement("label", "text", { containerId: null, text: "loose" }),
+      ]).size,
+    ).toBe(0);
+  });
+
+  it("findConnectingArrowIds requires both ends bound to two different elements", () => {
+    const a = makeElement("a", "rectangle");
+    const b = makeElement("b", "diamond");
+    const stray = makeElement("stray", "arrow", {
+      startBinding: null,
+      endBinding: null,
+    });
+    const oneSided = makeElement("one", "arrow", {
+      startBinding: { elementId: "a" },
+      endBinding: null,
+    });
+    const loop = makeElement("loop", "arrow", {
+      startBinding: { elementId: "a" },
+      endBinding: { elementId: "a" },
+    });
+    const connected = makeElement("link", "arrow", {
+      startBinding: { elementId: "a" },
+      endBinding: { elementId: "b" },
+    });
+
+    expect(findConnectingArrowIds([a, b, stray]).size).toBe(0);
+    expect(findConnectingArrowIds([a, b, oneSided]).size).toBe(0);
+    expect(findConnectingArrowIds([a, b, loop]).size).toBe(0);
+    expect(findConnectingArrowIds([a, b, connected]).has("link")).toBe(true);
   });
 });
 
@@ -96,7 +161,7 @@ describe("quickstart guide UI", () => {
   const renderUi = (props: {
     isVisible?: boolean;
     optedIn?: boolean;
-    activeHint?: "shape-tool" | null;
+    activeHint?: HintId | null;
   }) => {
     const onOptIn = vi.fn();
     const onEndGuide = vi.fn();
@@ -143,7 +208,9 @@ describe("quickstart guide UI", () => {
     });
     expect(document.body).toHaveTextContent("draw your first shape");
     expect(
-      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+      document.querySelector(
+        '[data-testid="quickstart-hint-shape-tool-styles"]',
+      ),
     ).not.toBe(null);
     expect(
       document.querySelector('[data-testid="quickstart-button-styles"]'),
@@ -158,9 +225,35 @@ describe("quickstart guide UI", () => {
   it("no highlight stylesheet outside the shape-tool hint", () => {
     renderUi({ optedIn: true, activeHint: null });
     expect(
-      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+      document.querySelector(
+        '[data-testid="quickstart-hint-shape-tool-styles"]',
+      ),
     ).toBe(null);
     expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
+  });
+
+  it("the labeling hint tells the user to press Enter and has an end control", () => {
+    const { onEndGuide } = renderUi({
+      optedIn: true,
+      activeHint: "labeling",
+    });
+    expect(document.body).toHaveTextContent("press Enter to add a label");
+    fireEvent.click(
+      document.querySelector('[data-testid="quickstart-end-guide"]')!,
+    );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("the connecting hint tells the user to draw a connecting arrow", () => {
+    renderUi({ optedIn: true, activeHint: "connecting" });
+    expect(document.body).toHaveTextContent(
+      "Draw an arrow to connect two shapes.",
+    );
+    expect(
+      document.querySelector(
+        '[data-testid="quickstart-hint-connecting-styles"]',
+      ),
+    ).not.toBe(null);
   });
 
   it("shifts the card below the welcome toolbar tooltip while it's visible", async () => {
@@ -230,9 +323,9 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       result.current.notifySceneChange([makeElement("el1", "rectangle")]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(result.current.activeHint).toBeNull();
+    expect(result.current.activeHint).toBe("labeling");
 
-    // a second shape must not resurrect or duplicate anything
+    // a second shape must not resurrect or skip labeling
     act(() =>
       result.current.notifySceneChange([
         makeElement("el1", "rectangle"),
@@ -240,7 +333,7 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
-    expect(result.current.activeHint).toBeNull();
+    expect(result.current.activeHint).toBe("labeling");
   });
 
   it("content that isn't a user mark doesn't complete the hint; a real mark does", () => {
@@ -258,6 +351,106 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
+  });
+
+  const completeShapeTool = (
+    result: { current: ReturnType<typeof useQuickstartGuide> },
+    shapeId = "el1",
+  ) => {
+    optInAndShowShapeHint(result);
+    act(() => result.current.notifySceneChange([]));
+    act(() =>
+      result.current.notifySceneChange([makeElement(shapeId, "rectangle")]),
+    );
+    expect(result.current.activeHint).toBe("labeling");
+  };
+
+  it("labeling completes only after bound text has content and editing ends", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeTool(result);
+
+    const shape = makeElement("el1", "rectangle");
+    act(() =>
+      result.current.notifySceneChange(
+        [shape, makeElement("t1", "text", { containerId: "el1", text: "" })],
+        { isEditingText: true },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+
+    act(() =>
+      result.current.notifySceneChange(
+        [
+          shape,
+          makeElement("t1", "text", { containerId: "el1", text: "Start" }),
+        ],
+        { isEditingText: true },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
+
+    act(() =>
+      result.current.notifySceneChange(
+        [
+          shape,
+          makeElement("t1", "text", { containerId: "el1", text: "Start" }),
+        ],
+        { isEditingText: false },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    expect(result.current.activeHint).toBe("connecting");
+  });
+
+  it("a stray unbound arrow does not complete connecting; a two-shape bind does", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeTool(result);
+
+    const shape1 = makeElement("el1", "rectangle");
+    const label = makeElement("t1", "text", {
+      containerId: "el1",
+      text: "Start",
+    });
+    act(() =>
+      result.current.notifySceneChange([shape1, label], { isEditingText: false }),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+
+    const stray = makeElement("stray", "arrow", {
+      startBinding: null,
+      endBinding: null,
+    });
+    act(() => result.current.notifySceneChange([shape1, label, stray]));
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    expect(result.current.activeHint).toBe("connecting");
+
+    const shape2 = makeElement("el2", "diamond");
+    act(() =>
+      result.current.notifySceneChange([shape1, label, stray, shape2]),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+
+    const link = makeElement("link", "arrow", {
+      startBinding: { elementId: "el1" },
+      endBinding: { elementId: "el2" },
+    });
+    act(() =>
+      result.current.notifySceneChange([shape1, label, stray, shape2, link]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBeNull();
   });
 
   it("a user who never opted in sees the prompt clear on their first content (PRD P1)", () => {
@@ -330,5 +523,56 @@ describe("Day 15/16 P0 exit check: no side effects for non-participants", () => 
     );
 
     expect(document.querySelector('[data-testid^="quickstart-"]')).toBe(null);
+  });
+});
+
+describe("quickstart restart from Help", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+  });
+
+  it("reopens the first hint after the user ends the guide", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+    act(() => result.current.endGuide());
+    expect(result.current.isVisible).toBe(false);
+
+    act(() => result.current.restartGuide());
+    expect(result.current.isVisible).toBe(true);
+    expect(result.current.optedIn).toBe(true);
+    expect(result.current.activeHint).toBe("shape-tool");
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+  });
+
+  it("reopens the guide for a returning user who is no longer eligible", () => {
+    const { result } = renderGuideHook(false);
+    expect(result.current.isVisible).toBe(false);
+
+    act(() => result.current.restartGuide());
+    expect(result.current.isVisible).toBe(true);
+    expect(result.current.activeHint).toBe("shape-tool");
+  });
+
+  it("does not complete hints from canvas content that was already there", () => {
+    const { result } = renderGuideHook(false);
+    act(() => result.current.restartGuide());
+
+    const existing = [
+      makeElement("el1", "rectangle"),
+      makeElement("t1", "text", { containerId: "el1", text: "Start" }),
+    ];
+    act(() => result.current.notifySceneChange(existing));
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+    expect(result.current.activeHint).toBe("shape-tool");
+
+    act(() =>
+      result.current.notifySceneChange([
+        ...existing,
+        makeElement("el2", "diamond"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
   });
 });
