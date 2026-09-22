@@ -44,24 +44,6 @@ export const isUserMark = (element: OrderedExcalidrawElement): boolean =>
   !element.isDeleted && USER_MARK_ELEMENT_TYPES.has(element.type);
 
 /**
- * The first element in `elements` that is new relative to `knownIds` and
- * reads as a user-authored mark, or null. New elements whose ids are already
- * known -- e.g. system-inserted starter content baselined before the guide
- * started watching -- don't count.
- */
-export const findFirstUserMark = (
-  knownIds: ReadonlySet<string>,
-  elements: readonly OrderedExcalidrawElement[],
-): OrderedExcalidrawElement | null =>
-  elements.find(
-    (element) => !knownIds.has(element.id) && isUserMark(element),
-  ) ?? null;
-
-export const hasUserMark = (
-  elements: readonly OrderedExcalidrawElement[],
-): boolean => elements.some((element) => isUserMark(element));
-
-/**
  * Does this element read as a user-added label on a shape? A *bound* text
  * element (containerId set) from double-clicking a shape -- not any text on
  * the canvas, matching the PRD's "double-click a shape to name this step"
@@ -72,19 +54,6 @@ export const isUserLabel = (element: OrderedExcalidrawElement): boolean =>
   // to null when unbound, but this must hold for any object shaped like
   // one, where it may simply be absent (undefined) instead.
   !element.isDeleted && element.type === "text" && element.containerId != null;
-
-/** Same shape as findFirstUserMark, for the labeling hint's completion check. */
-export const findFirstUserLabel = (
-  knownIds: ReadonlySet<string>,
-  elements: readonly OrderedExcalidrawElement[],
-): OrderedExcalidrawElement | null =>
-  elements.find(
-    (element) => !knownIds.has(element.id) && isUserLabel(element),
-  ) ?? null;
-
-export const hasUserLabel = (
-  elements: readonly OrderedExcalidrawElement[],
-): boolean => elements.some((element) => isUserLabel(element));
 
 /**
  * Does this element read as the user connecting two shapes? An arrow bound
@@ -100,24 +69,22 @@ export const isUserConnection = (element: OrderedExcalidrawElement): boolean =>
   element.endBinding != null &&
   element.startBinding.elementId !== element.endBinding.elementId;
 
-/** Same shape as findFirstUserMark, for the connecting hint's completion check. */
-export const findFirstUserConnection = (
-  knownIds: ReadonlySet<string>,
-  elements: readonly OrderedExcalidrawElement[],
-): OrderedExcalidrawElement | null =>
-  elements.find(
-    (element) => !knownIds.has(element.id) && isUserConnection(element),
-  ) ?? null;
-
-export const hasUserConnection = (
-  elements: readonly OrderedExcalidrawElement[],
-): boolean => elements.some((element) => isUserConnection(element));
-
 /**
- * Per-hint completion check: what counts as "the user did this hint's
- * action." Only hints with real detection logic need an entry -- an
+ * Per-hint completion predicate: does this element satisfy the hint's
+ * action? Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
  * never complete, so IMPLEMENTED_HINTS and this map must stay in sync.
+ *
+ * Deliberately just a predicate, not "is this a *new* element" -- that
+ * used to be baked in here (tracking known element ids), but an element
+ * can exist, not yet satisfying the condition, for one check and then
+ * satisfy it on a later check *with the same id* (Excalidraw assigns an
+ * arrow its id before a drag resolves which shape it binds to). Tracking
+ * "new ids" missed that case outright: the id was never new, only its
+ * bindings changed. useQuickstartGuide's notifySceneChange instead diffs
+ * *which ids currently satisfy this predicate* against the previous
+ * check, which catches both a genuinely new satisfying element and an
+ * existing one that just started satisfying it.
  *
  * "save" deliberately has no entry: unlike the first three, it doesn't
  * complete because of new *scene content* -- clicking Save, Cmd+S, or
@@ -126,21 +93,9 @@ export const hasUserConnection = (
  * directly from those save gestures rather than from notifySceneChange.
  */
 export const HINT_COMPLETION: Partial<
-  Record<
-    HintId,
-    {
-      hasAny: (elements: readonly OrderedExcalidrawElement[]) => boolean;
-      findFirstNew: (
-        knownIds: ReadonlySet<string>,
-        elements: readonly OrderedExcalidrawElement[],
-      ) => OrderedExcalidrawElement | null;
-    }
-  >
+  Record<HintId, (element: OrderedExcalidrawElement) => boolean>
 > = {
-  "shape-tool": { hasAny: hasUserMark, findFirstNew: findFirstUserMark },
-  labeling: { hasAny: hasUserLabel, findFirstNew: findFirstUserLabel },
-  connecting: {
-    hasAny: hasUserConnection,
-    findFirstNew: findFirstUserConnection,
-  },
+  "shape-tool": isUserMark,
+  labeling: isUserLabel,
+  connecting: isUserConnection,
 };

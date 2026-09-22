@@ -12,9 +12,9 @@ import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
 import {
-  findFirstUserConnection,
-  findFirstUserLabel,
-  findFirstUserMark,
+  isUserConnection,
+  isUserLabel,
+  isUserMark,
   nextHint,
 } from "../quickstart/behavior";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
@@ -114,75 +114,32 @@ describe("quickstart behavior logic", () => {
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
-  it("findFirstUserMark detects a newly created shape, not known or deleted elements", () => {
-    const known = new Set(["a"]);
-    expect(
-      findFirstUserMark(known, [
-        makeElement("a", "rectangle"),
-        makeElement("b", "ellipse"),
-      ])?.id,
-    ).toBe("b");
-    // already-known id: not new
-    expect(
-      findFirstUserMark(known, [makeElement("a", "rectangle")]),
-    ).toBeNull();
-    // deleted: not a mark
-    expect(
-      findFirstUserMark(known, [
-        makeElement("b", "rectangle", { isDeleted: true }),
-      ]),
-    ).toBeNull();
+  it("isUserMark identifies an authored shape, not deleted or import-style content", () => {
+    expect(isUserMark(makeElement("a", "rectangle"))).toBe(true);
+    expect(isUserMark(makeElement("a", "rectangle", { isDeleted: true }))).toBe(
+      false,
+    );
     // import-style content: not a user mark
-    expect(findFirstUserMark(known, [makeElement("b", "image")])).toBeNull();
+    expect(isUserMark(makeElement("a", "image"))).toBe(false);
   });
 
-  it("findFirstUserLabel detects a newly bound text element, not a freestanding one", () => {
-    const known = new Set(["a"]);
-    expect(
-      findFirstUserLabel(known, [
-        makeElement("a", "rectangle"),
-        makeLabel("b", "shape1"),
-      ])?.id,
-    ).toBe("b");
+  it("isUserLabel identifies a bound text element, not a freestanding one", () => {
+    expect(isUserLabel(makeLabel("a", "shape1"))).toBe(true);
     // freestanding text (no container): not a label
-    expect(findFirstUserLabel(known, [makeElement("b", "text")])).toBeNull();
-    // already-known id: not new
-    expect(findFirstUserLabel(known, [makeLabel("a", "shape1")])).toBeNull();
-    // deleted: not a label
-    expect(
-      findFirstUserLabel(known, [makeLabel("b", "shape1", true)]),
-    ).toBeNull();
+    expect(isUserLabel(makeElement("a", "text"))).toBe(false);
+    expect(isUserLabel(makeLabel("a", "shape1", true))).toBe(false);
   });
 
-  it("findFirstUserConnection detects an arrow bound at both ends to different shapes", () => {
-    const known = new Set(["a", "b"]);
-    expect(
-      findFirstUserConnection(known, [
-        makeElement("a", "rectangle"),
-        makeElement("b", "ellipse"),
-        makeArrow("c", "a", "b"),
-      ])?.id,
-    ).toBe("c");
+  it("isUserConnection identifies an arrow bound at both ends to different shapes", () => {
+    expect(isUserConnection(makeArrow("c", "a", "b"))).toBe(true);
     // only one end bound: not a connection
-    expect(
-      findFirstUserConnection(known, [makeArrow("c", "a", null)]),
-    ).toBeNull();
+    expect(isUserConnection(makeArrow("c", "a", null))).toBe(false);
     // neither end bound: not a connection
-    expect(
-      findFirstUserConnection(known, [makeArrow("c", null, null)]),
-    ).toBeNull();
+    expect(isUserConnection(makeArrow("c", null, null))).toBe(false);
     // both ends bound to the *same* shape: doesn't connect two steps
-    expect(
-      findFirstUserConnection(known, [makeArrow("c", "a", "a")]),
-    ).toBeNull();
-    // already-known id: not new
-    expect(
-      findFirstUserConnection(known, [makeArrow("a", "a", "b")]),
-    ).toBeNull();
+    expect(isUserConnection(makeArrow("c", "a", "a"))).toBe(false);
     // deleted: not a connection
-    expect(
-      findFirstUserConnection(known, [makeArrow("c", "a", "b", true)]),
-    ).toBeNull();
+    expect(isUserConnection(makeArrow("c", "a", "b", true))).toBe(false);
   });
 });
 
@@ -545,6 +502,46 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
         makeLabel("lbl1", "el1"),
         makeArrow("arrow2", "el1", "el2"),
         makeArrow("arrow3", "el1", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+  });
+
+  it("an arrow that starts unbound and becomes bound with the SAME id completes connecting (regression)", () => {
+    // Reproduces a real bug found in-browser: Excalidraw assigns an
+    // arrow's id before a drag resolves which shape it binds to, so
+    // onChange can fire while it's still unbound. The old "is this id
+    // new" check baselined that id as "already known" right then, and
+    // permanently missed it becoming bound later -- same id throughout,
+    // only its bindings changed. This must complete via satisfaction
+    // (behavior.ts's HINT_COMPLETION diffed in useQuickstartGuide), not
+    // via id novelty.
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    // the arrow appears, unbound -- e.g. mid-drag, before it resolves a
+    // binding target
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("dragging", null, null),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+
+    // the SAME arrow id, now bound at both ends to two different shapes
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("dragging", "el1", "el2"),
       ]),
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([

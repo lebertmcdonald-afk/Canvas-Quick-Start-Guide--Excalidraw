@@ -77,10 +77,15 @@ export const useQuickstartGuide = (
   // any component that has this hook mounted.
   const [completedHints, setCompletedHints] = useAtom(completedHintsAtom);
 
-  // Element ids on the canvas when scene detection last looked, while the
-  // guide is active. Null whenever it isn't, so users the guide doesn't
-  // apply to never pay for any of this.
-  const knownElementIdsRef = useRef<ReadonlySet<string> | null>(null);
+  // For the currently active hint, the ids of elements that satisfied its
+  // completion predicate (behavior.ts's HINT_COMPLETION) the last time
+  // this ran. Reset whenever the active hint itself changes -- a new
+  // hint's predicate is different, so its baseline has to be recaptured
+  // fresh, not carried over from the previous hint.
+  const satisfiedBaselineRef = useRef<{
+    hint: HintId | null;
+    ids: ReadonlySet<string>;
+  } | null>(null);
   // After a Help-menu restart, existing canvas content is baselined and
   // must not instantly complete hints or dismiss the prompt (P1).
   const skipBaselineCompletionRef = useRef(false);
@@ -113,7 +118,7 @@ export const useQuickstartGuide = (
   const endGuide = () => {
     setEnded(true);
     setActiveHint(null);
-    knownElementIdsRef.current = null;
+    satisfiedBaselineRef.current = null;
     skipBaselineCompletionRef.current = false;
   };
 
@@ -128,7 +133,7 @@ export const useQuickstartGuide = (
     setOptedIn(true);
     setCompletedHints([]);
     setActiveHint(nextHint([]));
-    knownElementIdsRef.current = null;
+    satisfiedBaselineRef.current = null;
     skipBaselineCompletionRef.current = true;
   };
 
@@ -144,11 +149,15 @@ export const useQuickstartGuide = (
    *    the prompt gets out of the way on that first interaction (PRD P1).
    *  - if the active hint is one the user just satisfied, it completes and
    *    disappears on its own, never repeating. What counts as satisfying it
-   *    is per-hint (HINT_COMPLETION in behavior.ts).
+   *    is per-hint (HINT_COMPLETION in behavior.ts); *which* elements newly
+   *    satisfy it is tracked here by diffing ids-that-satisfy-it against
+   *    the previous check, not by whether the id itself is new -- an arrow
+   *    can exist, unbound, for one check and become bound on a later one
+   *    with the same id (see the comment on HINT_COMPLETION).
    */
   const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
     if (!guideApplies) {
-      knownElementIdsRef.current = null;
+      satisfiedBaselineRef.current = null;
       return;
     }
 
@@ -159,35 +168,53 @@ export const useQuickstartGuide = (
       return;
     }
 
-    const completion = activeHint ? HINT_COMPLETION[activeHint] : undefined;
+    const isMatch = activeHint ? HINT_COMPLETION[activeHint] : undefined;
     const hintPending =
-      completion !== undefined &&
+      isMatch !== undefined &&
       activeHint !== null &&
       !completedHints.includes(activeHint);
 
-    if (knownElementIdsRef.current === null) {
-      // First change since detection started: what's already on the canvas
-      // predates the guide, so it baselines instead of counting as new --
-      // unless it already satisfies the active hint outright (no point
-      // teaching a finished step).
-      knownElementIdsRef.current = new Set(
-        elements.map((element) => element.id),
-      );
-      if (skipBaselineCompletionRef.current) {
-        skipBaselineCompletionRef.current = false;
-        return;
-      }
-      if (hintPending && completion.hasAny(elements)) {
+    if (!hintPending) {
+      satisfiedBaselineRef.current = null;
+      return;
+    }
+
+    const currentlySatisfyingIds = new Set(
+      elements
+        .filter((element) => isMatch(element))
+        .map((element) => element.id),
+    );
+
+    if (
+      satisfiedBaselineRef.current === null ||
+      satisfiedBaselineRef.current.hint !== activeHint
+    ) {
+      // First change since this hint became active: anything already
+      // satisfying it predates our watching for *this* hint specifically,
+      // so it's the starting baseline -- unless something already
+      // satisfies it, which completes the hint outright (no point
+      // teaching a finished step). Skipped right after a Help restart, so
+      // pre-existing content can't instantly complete the reopened guide.
+      const shouldSkip = skipBaselineCompletionRef.current;
+      skipBaselineCompletionRef.current = false;
+      satisfiedBaselineRef.current = {
+        hint: activeHint,
+        ids: currentlySatisfyingIds,
+      };
+      if (!shouldSkip && currentlySatisfyingIds.size > 0) {
         completeHint(activeHint as HintId);
       }
       return;
     }
 
-    const createdMatch = hintPending
-      ? completion.findFirstNew(knownElementIdsRef.current, elements)
-      : null;
-    knownElementIdsRef.current = new Set(elements.map((element) => element.id));
-    if (hintPending && createdMatch) {
+    const newlySatisfied = [...currentlySatisfyingIds].some(
+      (id) => !satisfiedBaselineRef.current!.ids.has(id),
+    );
+    satisfiedBaselineRef.current = {
+      hint: activeHint,
+      ids: currentlySatisfyingIds,
+    };
+    if (newlySatisfied) {
       completeHint(activeHint as HintId);
     }
   };
