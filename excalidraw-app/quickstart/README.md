@@ -8,7 +8,7 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 | `useQuickstartGuide.ts` | Guide behavior: opt-in, hint progression, end-guide, exposure→seen-flag, scene detection | Day 16 — Jason, extended Day 18 — Lebert |
 | `QuickstartGuide.tsx` | Prompt + hint UI (incl. the shape-tool toolbar highlight, the "How to start" link) | Day 16 — Jason, extended Day 18 — Lebert |
 | `QuickstartHelpButton.tsx` | Help dialog "Getting started" button to reopen a dismissed guide | Day 18 — Mofazzal |
-| `behavior.ts` | Pure logic: what counts as a user-authored mark/label, hint progression, per-hint completion checks | Day 16 — Jason, extended Day 18 — Lebert |
+| `behavior.ts` | Pure logic: what counts as a user-authored mark/label, hint progression, per-hint completion checks | Day 16 — Jason, extended Day 18 — Lebert / Mofazzal |
 | `types.ts` | Shared types: hint IDs, experiment group, event names | infra |
 | `state.ts` | Shared guide state (Jotai atoms) | infra |
 
@@ -24,8 +24,9 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
   - **Hint completion (PRD P0):** per-hint and mark-aware. `shape-tool` wants any authored mark (not images/imports, per PRD §3); `labeling` wants specifically a bound text label; `connecting` wants an arrow bound at both ends to two different shapes. Either way, only new elements (not present when detection started) count, and only once.
 
 - **Help-menu restart (done):** a "Getting started" button in the Help dialog header (same `HelpDialog__btn` style as Documentation / Blog / GitHub / YouTube) reopens the guide after dismiss, including for returning browsers that would otherwise fail eligibility. Existing canvas content is baselined so it doesn't instantly complete the first hint.
-- **Not built yet:** the `save` hint (add `"save"` to `IMPLEMENTED_HINTS` in `behavior.ts`, an entry in `HINT_COMPLETION`, plus rendering in `QuickstartGuide.tsx` -- should reuse `excalidraw-app/unsavedWork.ts`'s `hasUnsavedExplicitWork`/`markExplicitlySaved` for the actual save-state signal rather than reinventing it), collaborator authorship beyond the mark-type exclusion (untested against a real collaborative session), and analytics wiring for the five `QuickstartEventName`s:
-  - Day 18 (Mofazzal): `save` hint, remote-collaborator-edit detection, wiring the hint to `unsavedWork.ts`'s save-state primitives.
+- **Save hint (done):** after connecting, the `save` hint asks the user to save so they can come back. It completes only on an explicit save gesture (`markExplicitlySaved` — menu Save / Export / Save as image, Ctrl/Cmd+S, or export to Excalidraw+), not on autosave or further drawing. If they already saved this scene, the hint is skipped.
+- **Remote collaborator edits (done):** Collab marks remote `updateScene` writes. Those elements are baselined so they cannot complete a hint or dismiss the opt-in prompt (P1 is the local user starting to draw). A later local mark still completes the active hint as usual.
+- **Not built yet:** analytics wiring for the five `QuickstartEventName`s:
   - Day 20 (Jason): analytics wiring for the five `QuickstartEventName`s, control/treatment comparison.
 
 ## Conventions

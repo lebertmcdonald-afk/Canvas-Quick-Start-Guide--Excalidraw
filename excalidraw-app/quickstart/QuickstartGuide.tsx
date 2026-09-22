@@ -189,6 +189,16 @@ ${HINT_PULSE}
 }
 `;
 
+const SAVE_MENU_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw button[data-testid="main-menu-trigger"],
+.excalidraw [data-testid="save-button"],
+.excalidraw [data-testid="json-export-button"],
+.excalidraw [data-testid="image-export-button"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
 export const QuickstartGuide: React.FC<{
   isVisible: boolean;
   optedIn: boolean;
@@ -286,6 +296,14 @@ export const QuickstartGuide: React.FC<{
       "quickstart-hint-connecting",
       "Draw an arrow to connect two shapes.",
       ARROW_TOOL_HIGHLIGHT_STYLES,
+    );
+  }
+
+  if (activeHint === "save") {
+    return hintCard(
+      "quickstart-hint-save",
+      "Save this drawing so you can come back to it.",
+      SAVE_MENU_HIGHLIGHT_STYLES,
     );
   }
 

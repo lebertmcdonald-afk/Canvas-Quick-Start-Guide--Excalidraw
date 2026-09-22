@@ -22,6 +22,17 @@ let latestSignature = "0:0:0";
 /** Scene state at the user's last explicit save; null = never this session. */
 let savedSignature: string | null = null;
 
+type ExplicitSaveListener = () => void;
+const explicitSaveListeners = new Set<ExplicitSaveListener>();
+
+/** The guide (and tests) subscribe so an explicit save can complete the save hint. */
+export const subscribeExplicitSave = (listener: ExplicitSaveListener) => {
+  explicitSaveListeners.add(listener);
+  return () => {
+    explicitSaveListeners.delete(listener);
+  };
+};
+
 const signatureOf = (elements: readonly ExcalidrawElement[]) => {
   let count = 0;
   let sum = 0;
@@ -49,11 +60,18 @@ export const noteSceneChange = (elements: readonly ExcalidrawElement[]) => {
  */
 export const markExplicitlySaved = () => {
   savedSignature = latestSignature;
+  for (const listener of explicitSaveListeners) {
+    listener();
+  }
 };
 
 /** Authored content that hasn't been explicitly saved since its last change. */
 export const hasUnsavedExplicitWork = () =>
   latestSignature !== "0:0:0" && latestSignature !== savedSignature;
+
+/** True only after a real save gesture on the current scene this session. */
+export const hasExplicitlySavedCurrentScene = () =>
+  savedSignature !== null && savedSignature === latestSignature;
 
 /** Test-only: reset the session-scoped tracking. */
 export const resetUnsavedWorkTracking = () => {

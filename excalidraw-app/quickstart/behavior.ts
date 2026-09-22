@@ -29,6 +29,7 @@ const IMPLEMENTED_HINTS: readonly HintId[] = [
   "shape-tool",
   "labeling",
   "connecting",
+  "save",
 ];
 
 /** The first implemented hint the user hasn't completed yet, or null. */
@@ -86,18 +87,135 @@ export const hasUserLabel = (
 ): boolean => elements.some((element) => isUserLabel(element));
 
 /**
- * Does this element read as the user connecting two shapes? An arrow bound
- * at *both* ends (startBinding and endBinding both set) to two *different*
- * shapes -- not just any arrow, matching the PRD's "connect two steps with
- * an arrow", and not a loop back onto the same shape, which doesn't connect
- * two steps.
+ * Shapes the connecting hint is teaching. Bound labels sit on these and
+ * must resolve back to the container — Excalidraw will not bind an arrow
+ * to a containerId text, so a drag that starts on the label often has
+ * null startBinding even though the user clearly connected two steps.
  */
-export const isUserConnection = (element: OrderedExcalidrawElement): boolean =>
-  !element.isDeleted &&
-  element.type === "arrow" &&
-  element.startBinding != null &&
-  element.endBinding != null &&
-  element.startBinding.elementId !== element.endBinding.elementId;
+const CONNECTABLE_SHAPE_TYPES = new Set<string>([
+  "rectangle",
+  "diamond",
+  "ellipse",
+]);
+
+const NEAR_SHAPE_PADDING = 16;
+
+type ScenePoint = { x: number; y: number };
+
+const pointHitsElement = (
+  point: ScenePoint,
+  element: OrderedExcalidrawElement,
+  padding: number,
+): boolean => {
+  const width = typeof element.width === "number" ? element.width : 0;
+  const height = typeof element.height === "number" ? element.height : 0;
+  return (
+    point.x >= element.x - padding &&
+    point.x <= element.x + width + padding &&
+    point.y >= element.y - padding &&
+    point.y <= element.y + height + padding
+  );
+};
+
+const getArrowEndpoints = (
+  element: OrderedExcalidrawElement,
+): { start: ScenePoint; end: ScenePoint } | null => {
+  if (element.type !== "arrow" || !("points" in element)) {
+    return null;
+  }
+  const points = element.points;
+  if (!Array.isArray(points) || points.length < 2) {
+    return null;
+  }
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (
+    !Array.isArray(first) ||
+    !Array.isArray(last) ||
+    typeof first[0] !== "number" ||
+    typeof last[0] !== "number"
+  ) {
+    return null;
+  }
+  return {
+    start: { x: element.x + first[0], y: element.y + first[1] },
+    end: { x: element.x + last[0], y: element.y + last[1] },
+  };
+};
+
+const resolveBoundShapeId = (
+  binding: { elementId?: string } | null | undefined,
+  elements: readonly OrderedExcalidrawElement[],
+): string | null => {
+  const id = binding?.elementId;
+  if (!id) {
+    return null;
+  }
+  const target = elements.find((element) => element.id === id);
+  if (target?.isDeleted) {
+    return null;
+  }
+  if (target?.type === "text" && target.containerId != null) {
+    return target.containerId;
+  }
+  return id;
+};
+
+const resolveShapeIdNearPoint = (
+  point: ScenePoint,
+  elements: readonly OrderedExcalidrawElement[],
+): string | null => {
+  for (let index = elements.length - 1; index >= 0; index -= 1) {
+    const element = elements[index];
+    if (element.isDeleted) {
+      continue;
+    }
+    if (element.type === "text" && element.containerId != null) {
+      const container = elements.find(
+        (item) => item.id === element.containerId,
+      );
+      if (
+        (container && pointHitsElement(point, container, NEAR_SHAPE_PADDING)) ||
+        pointHitsElement(point, element, NEAR_SHAPE_PADDING)
+      ) {
+        return element.containerId;
+      }
+    }
+    if (
+      CONNECTABLE_SHAPE_TYPES.has(element.type) &&
+      pointHitsElement(point, element, NEAR_SHAPE_PADDING)
+    ) {
+      return element.id;
+    }
+  }
+  return null;
+};
+
+/**
+ * Does this element read as the user connecting two shapes? Official
+ * bindings at both ends to two different shapes count, and so does an
+ * arrow whose endpoints sit on (or next to) two different shapes — the
+ * real arrow tool often creates the element unbound, then binds the same
+ * id, and a drag that starts on a label frequently never binds at all.
+ */
+export const isUserConnection = (
+  element: OrderedExcalidrawElement,
+  elements: readonly OrderedExcalidrawElement[] = [],
+): boolean => {
+  if (element.isDeleted || element.type !== "arrow") {
+    return false;
+  }
+
+  const endpoints = getArrowEndpoints(element);
+  const startId =
+    resolveBoundShapeId(element.startBinding, elements) ??
+    (endpoints ? resolveShapeIdNearPoint(endpoints.start, elements) : null);
+  const endId =
+    resolveBoundShapeId(element.endBinding, elements) ??
+    (endpoints ? resolveShapeIdNearPoint(endpoints.end, elements) : null);
+
+  return startId != null && endId != null && startId !== endId;
+};
 
 /** Same shape as findFirstUserMark, for the connecting hint's completion check. */
 export const findFirstUserConnection = (
@@ -105,18 +223,21 @@ export const findFirstUserConnection = (
   elements: readonly OrderedExcalidrawElement[],
 ): OrderedExcalidrawElement | null =>
   elements.find(
-    (element) => !knownIds.has(element.id) && isUserConnection(element),
+    (element) =>
+      !knownIds.has(element.id) && isUserConnection(element, elements),
   ) ?? null;
 
 export const hasUserConnection = (
   elements: readonly OrderedExcalidrawElement[],
-): boolean => elements.some((element) => isUserConnection(element));
+): boolean => elements.some((element) => isUserConnection(element, elements));
 
 /**
  * Per-hint completion check: what counts as "the user did this hint's
  * action." Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
  * never complete, so IMPLEMENTED_HINTS and this map must stay in sync.
+ * `save` is the exception: it completes on markExplicitlySaved(), not a
+ * scene element, so it has no entry here.
  */
 export const HINT_COMPLETION: Partial<
   Record<
@@ -127,13 +248,26 @@ export const HINT_COMPLETION: Partial<
         knownIds: ReadonlySet<string>,
         elements: readonly OrderedExcalidrawElement[],
       ) => OrderedExcalidrawElement | null;
+      isSatisfied: (
+        element: OrderedExcalidrawElement,
+        elements: readonly OrderedExcalidrawElement[],
+      ) => boolean;
     }
   >
 > = {
-  "shape-tool": { hasAny: hasUserMark, findFirstNew: findFirstUserMark },
-  labeling: { hasAny: hasUserLabel, findFirstNew: findFirstUserLabel },
+  "shape-tool": {
+    hasAny: hasUserMark,
+    findFirstNew: findFirstUserMark,
+    isSatisfied: isUserMark,
+  },
+  labeling: {
+    hasAny: hasUserLabel,
+    findFirstNew: findFirstUserLabel,
+    isSatisfied: isUserLabel,
+  },
   connecting: {
     hasAny: hasUserConnection,
     findFirstNew: findFirstUserConnection,
+    isSatisfied: isUserConnection,
   },
 };

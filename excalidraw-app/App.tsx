@@ -145,6 +145,7 @@ import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { QuickstartHelpButton } from "./quickstart/QuickstartHelpButton";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
+import { isRemoteSceneUpdate } from "./quickstart/remoteScene";
 import { useQuickstartGuide } from "./quickstart/useQuickstartGuide";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
@@ -394,6 +395,8 @@ const ExcalidrawWrapper = () => {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   const { isNewUser: isNewCanvasUser, markGuideSeen } = useIsNewCanvasUser();
   const quickstart = useQuickstartGuide(isNewCanvasUser, markGuideSeen);
+  const notifySceneChangeRef = useRef(quickstart.notifySceneChange);
+  notifySceneChangeRef.current = quickstart.notifySceneChange;
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -787,7 +790,9 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    quickstart.notifySceneChange(elements);
+    notifySceneChangeRef.current(elements, {
+      isRemote: isRemoteSceneUpdate(),
+    });
     noteSceneChange(elements);
 
     if (collabAPI?.isCollaborating()) {

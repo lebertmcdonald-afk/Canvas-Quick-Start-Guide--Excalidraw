@@ -4,6 +4,11 @@ import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { useAtom } from "../app-jotai";
 
+import {
+  hasExplicitlySavedCurrentScene,
+  subscribeExplicitSave,
+} from "../unsavedWork";
+
 import { HINT_COMPLETION, nextHint } from "./behavior";
 import {
   activeHintAtom,
@@ -14,6 +19,11 @@ import {
 } from "./state";
 
 import type { HintId } from "./types";
+
+export type SceneChangeMeta = {
+  /** True when this scene write came from a collaborator, not the local user. */
+  isRemote?: boolean;
+};
 
 /**
  * Day 16 (shape-tool) + Day 18 (labeling/connecting): drives the guide
@@ -51,9 +61,51 @@ export const useQuickstartGuide = (
   // the new hint, but an arrow created unbound and then bound still does.
   const satisfiedIdsRef = useRef<ReadonlySet<string>>(new Set());
   const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
+  const activeHintRef = useRef(activeHint);
+  const completedHintsRef = useRef(completedHints);
+  const optedInRef = useRef(optedIn);
+  const guideAppliesRef = useRef(false);
+  activeHintRef.current = activeHint;
+  completedHintsRef.current = completedHints;
+  optedInRef.current = optedIn;
 
   const guideApplies = (isNewUser === true || forcedVisible) && !ended;
+  guideAppliesRef.current = guideApplies;
   const isVisible = guideApplies;
+
+  const matchingIdsFor = (
+    hint: HintId | null,
+    elements: readonly OrderedExcalidrawElement[],
+  ) => {
+    const completion = hint ? HINT_COMPLETION[hint] : undefined;
+    if (!completion) {
+      return new Set<string>();
+    }
+    return new Set(
+      elements
+        .filter((element) => completion.isSatisfied(element, elements))
+        .map((element) => element.id),
+    );
+  };
+
+  const seedSatisfiedIds = (hint: HintId | null) => {
+    satisfiedIdsRef.current = matchingIdsFor(hint, lastElementsRef.current);
+  };
+
+  const completeHint = (hintId: HintId) => {
+    if (completedHintsRef.current.includes(hintId)) {
+      return;
+    }
+    const nextCompleted = [...completedHintsRef.current, hintId];
+    const next = nextHint(nextCompleted);
+    // Update refs first so a follow-up onChange in this same tick (Excalidraw
+    // often fires more than one) sees the new hint, not a stale closure.
+    completedHintsRef.current = nextCompleted;
+    activeHintRef.current = next;
+    seedSatisfiedIds(next);
+    setCompletedHints(nextCompleted);
+    setActiveHint(next);
+  };
 
   useEffect(() => {
     if (isNewUser === true) {
@@ -69,21 +121,35 @@ export const useQuickstartGuide = (
     if (!activeHint && optedIn && !ended) {
       const next = nextHint(completedHints);
       if (next) {
+        seedSatisfiedIds(next);
+        activeHintRef.current = next;
         setActiveHint(next);
       }
     }
+    // seedSatisfiedIds reads refs only; listing it would retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optedIn, ended, completedHints, activeHint, setActiveHint]);
 
   useEffect(() => {
-    const completion = activeHint ? HINT_COMPLETION[activeHint] : undefined;
-    satisfiedIdsRef.current = completion
-      ? new Set(
-          lastElementsRef.current
-            .filter((element) => completion.findFirstNew(new Set(), [element]))
-            .map((element) => element.id),
-        )
-      : new Set();
+    // Save isn't a scene-element check: if the user already explicitly
+    // saved this drawing, don't teach a finished step. Do not reseed
+    // satisfiedIds here — lastElements may already include a connection
+    // that arrived before React painted the new hint, and reseeding would
+    // mark it as already done so the hint never completes.
+    if (activeHint === "save" && hasExplicitlySavedCurrentScene()) {
+      completeHint("save");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeHint]);
+
+  useEffect(() => {
+    return subscribeExplicitSave(() => {
+      if (activeHintRef.current === "save") {
+        completeHint("save");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const optIn = () => setOptedIn(true);
 
@@ -91,6 +157,7 @@ export const useQuickstartGuide = (
   const endGuide = () => {
     setEnded(true);
     setActiveHint(null);
+    activeHintRef.current = null;
     knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = false;
     satisfiedIdsRef.current = new Set();
@@ -107,18 +174,14 @@ export const useQuickstartGuide = (
     setEnded(false);
     setOptedIn(true);
     setCompletedHints([]);
-    setActiveHint(nextHint([]));
+    const firstHint = nextHint([]);
+    completedHintsRef.current = [];
+    activeHintRef.current = firstHint;
+    optedInRef.current = true;
+    setActiveHint(firstHint);
     knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = true;
     satisfiedIdsRef.current = new Set();
-  };
-
-  const completeHint = (hintId: HintId) => {
-    if (!completedHints.includes(hintId)) {
-      const nextCompleted = [...completedHints, hintId];
-      setCompletedHints(nextCompleted);
-      setActiveHint(nextHint(nextCompleted));
-    }
   };
 
   /**
@@ -133,33 +196,59 @@ export const useQuickstartGuide = (
    *    disappears on its own, never repeating. What counts as satisfying it
    *    is per-hint (HINT_COMPLETION in behavior.ts).
    */
-  const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
+  const notifySceneChange = (
+    elements: readonly OrderedExcalidrawElement[],
+    meta?: SceneChangeMeta,
+  ) => {
     lastElementsRef.current = elements;
+    const isRemote = meta?.isRemote === true;
 
-    if (!guideApplies) {
+    if (!guideAppliesRef.current) {
       knownElementIdsRef.current = null;
       return;
     }
 
-    if (!optedIn) {
-      if (elements.length > 0) {
+    if (!optedInRef.current) {
+      // A collaborator's edit must not dismiss the prompt (P1 is the
+      // *local* user starting to draw on their own).
+      if (elements.length > 0 && !isRemote) {
         endGuide();
+      }
+      if (isRemote) {
+        knownElementIdsRef.current = new Set(
+          elements.map((element) => element.id),
+        );
       }
       return;
     }
 
-    const completion = activeHint ? HINT_COMPLETION[activeHint] : undefined;
+    const currentHint = activeHintRef.current;
+    if (currentHint && completedHintsRef.current.includes(currentHint)) {
+      const next = nextHint(completedHintsRef.current);
+      if (next !== currentHint) {
+        activeHintRef.current = next;
+        seedSatisfiedIds(next);
+        setActiveHint(next);
+      }
+      return;
+    }
+    const completion = currentHint ? HINT_COMPLETION[currentHint] : undefined;
     const hintPending =
       completion !== undefined &&
-      activeHint !== null &&
-      !completedHints.includes(activeHint);
-    const matchingIds = completion
-      ? new Set(
-          elements
-            .filter((element) => completion.findFirstNew(new Set(), [element]))
-            .map((element) => element.id),
-        )
-      : new Set<string>();
+      currentHint !== null &&
+      !completedHintsRef.current.includes(currentHint);
+    const matchingIds = matchingIdsFor(currentHint, elements);
+
+    if (isRemote) {
+      knownElementIdsRef.current = new Set(
+        elements.map((element) => element.id),
+      );
+      satisfiedIdsRef.current = new Set([
+        ...satisfiedIdsRef.current,
+        ...matchingIds,
+      ]);
+      return;
+    }
 
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
@@ -176,7 +265,7 @@ export const useQuickstartGuide = (
       }
       satisfiedIdsRef.current = matchingIds;
       if (hintPending && completion.hasAny(elements)) {
-        completeHint(activeHint as HintId);
+        completeHint(currentHint as HintId);
       }
       return;
     }
@@ -188,7 +277,7 @@ export const useQuickstartGuide = (
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
     satisfiedIdsRef.current = matchingIds;
     if (hintPending && newlySatisfied) {
-      completeHint(activeHint as HintId);
+      completeHint(currentHint as HintId);
     }
   };
 

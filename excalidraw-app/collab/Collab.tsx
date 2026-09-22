@@ -87,6 +87,10 @@ import {
   saveUsernameToLocalStorage,
 } from "../data/localStorage";
 import { resetBrowserStateVersions } from "../data/tabSync";
+import {
+  beginRemoteSceneUpdate,
+  endRemoteSceneUpdate,
+} from "../quickstart/remoteScene";
 
 import { collabErrorIndicatorAtom } from "./CollabError";
 import Portal from "./Portal";
@@ -810,10 +814,15 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   private handleRemoteSceneUpdate = (
     elements: ReconciledExcalidrawElement[],
   ) => {
-    this.excalidrawAPI.updateScene({
-      elements,
-      captureUpdate: CaptureUpdateAction.NEVER,
-    });
+    beginRemoteSceneUpdate();
+    try {
+      this.excalidrawAPI.updateScene({
+        elements,
+        captureUpdate: CaptureUpdateAction.NEVER,
+      });
+    } finally {
+      endRemoteSceneUpdate();
+    }
 
     this.loadImageFiles();
   };
