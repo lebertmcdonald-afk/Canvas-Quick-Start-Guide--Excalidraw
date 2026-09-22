@@ -751,7 +751,11 @@ describe("quickstart actions in the shortcuts-and-help dialog", () => {
         <QuickstartHelpButton onRestart={onRestart} />
       </Excalidraw>,
     );
-    await waitFor(() => expect(window.h).toBeTruthy());
+    await waitFor(() => {
+      // window.h exists (empty) as soon as the package module loads; the
+      // app reference only appears once the editor has mounted
+      expect(window.h.app).toBeTruthy();
+    });
     act(() => {
       window.h.app.setOpenDialog({ name: "help" });
     });
