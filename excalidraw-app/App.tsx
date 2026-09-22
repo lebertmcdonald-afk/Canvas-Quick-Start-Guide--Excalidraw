@@ -144,7 +144,10 @@ import {
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
-import { useQuickstartGuide } from "./quickstart/useQuickstartGuide";
+import {
+  notifyExplicitSave,
+  useQuickstartGuide,
+} from "./quickstart/useQuickstartGuide";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
@@ -768,6 +771,7 @@ const ExcalidrawWrapper = () => {
         // saveScene (CtrlOrCmd+S) and imageExport (CtrlOrCmd+Shift+E)
         if (key === "s" || (key === "e" && event.shiftKey)) {
           markExplicitlySaved();
+          notifyExplicitSave();
         }
       }
     };
@@ -1048,6 +1052,7 @@ const ExcalidrawWrapper = () => {
                         onSuccess={() => {
                           // exported to the Excalidraw+ workspace: saved
                           markExplicitlySaved();
+                          notifyExplicitSave();
                           excalidrawAPI.updateScene({
                             appState: { openDialog: null },
                           });

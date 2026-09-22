@@ -21,7 +21,7 @@ const USER_MARK_ELEMENT_TYPES = new Set<string>([
 
 /**
  * Hints with real content implemented so far. Day 16 implemented the first;
- * Day 18 adds labeling and connecting. Each later day adds its hint here and
+ * Day 18 adds the rest of the chain. Each later day adds its hint here and
  * the chain starts advancing to it automatically once the previous hint
  * completes.
  */
@@ -29,6 +29,7 @@ const IMPLEMENTED_HINTS: readonly HintId[] = [
   "shape-tool",
   "labeling",
   "connecting",
+  "save",
 ];
 
 /** The first implemented hint the user hasn't completed yet, or null. */
@@ -117,6 +118,12 @@ export const hasUserConnection = (
  * action." Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
  * never complete, so IMPLEMENTED_HINTS and this map must stay in sync.
+ *
+ * "save" deliberately has no entry: unlike the first three, it doesn't
+ * complete because of new *scene content* -- clicking Save, Cmd+S, or
+ * exporting to Excalidraw+ don't necessarily change any element. It
+ * completes via useQuickstartGuide's notifyExplicitSave instead, called
+ * directly from those save gestures rather than from notifySceneChange.
  */
 export const HINT_COMPLETION: Partial<
   Record<

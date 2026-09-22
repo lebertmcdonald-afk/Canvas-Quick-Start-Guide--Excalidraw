@@ -25,7 +25,10 @@ import {
   guideOptedInAtom,
 } from "../quickstart/state";
 
-import { useQuickstartGuide } from "../quickstart/useQuickstartGuide";
+import {
+  notifyExplicitSave,
+  useQuickstartGuide,
+} from "../quickstart/useQuickstartGuide";
 
 import type { HintId } from "../quickstart/types";
 
@@ -97,7 +100,10 @@ describe("quickstart behavior logic", () => {
     expect(nextHint([])).toBe("shape-tool");
     expect(nextHint(["shape-tool"])).toBe("labeling");
     expect(nextHint(["shape-tool", "labeling"])).toBe("connecting");
-    expect(nextHint(["shape-tool", "labeling", "connecting"])).toBeNull();
+    expect(nextHint(["shape-tool", "labeling", "connecting"])).toBe("save");
+    expect(
+      nextHint(["shape-tool", "labeling", "connecting", "save"]),
+    ).toBeNull();
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
@@ -255,6 +261,21 @@ describe("quickstart guide UI", () => {
     });
     expect(document.body).toHaveTextContent(
       "Draw an arrow to connect two shapes.",
+    );
+    expect(
+      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).toBe(null);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="quickstart-end-guide"]')!,
+    );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("the save hint shows where it's stored and how to save a real copy", () => {
+    const { onEndGuide } = renderUi({ optedIn: true, activeHint: "save" });
+    expect(document.body).toHaveTextContent(
+      "Your drawing auto-saves in this browser. Use the menu to save a copy.",
     );
     expect(
       document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
@@ -489,8 +510,7 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       "labeling",
       "connecting",
     ]);
-    // save isn't implemented yet, so the chain has nowhere further to go
-    expect(result.current.activeHint).toBeNull();
+    expect(result.current.activeHint).toBe("save");
 
     // a second connecting arrow must not duplicate the completion
     act(() =>
@@ -507,6 +527,74 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       "labeling",
       "connecting",
     ]);
+  });
+
+  const completeThroughConnecting = (result: {
+    current: ReturnType<typeof useQuickstartGuide>;
+  }) => {
+    completeShapeToolAndLabeling(result);
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow1", "el1", "el2"),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("save");
+  };
+
+  it("an explicit save completes the save hint on its own, once; scene changes alone don't", () => {
+    const { result } = renderGuideHook(true);
+    completeThroughConnecting(result);
+
+    // save isn't scene-content-driven: drawing more shapes must not
+    // complete it via notifySceneChange
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow1", "el1", "el2"),
+        makeElement("el3", "diamond"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBe("save");
+
+    // the user's explicit save gesture (menu click / Cmd+S / Excalidraw+
+    // export) completes it
+    act(() => notifyExplicitSave());
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+      "save",
+    ]);
+    // save is the last hint in the chain: nowhere further to go
+    expect(result.current.activeHint).toBeNull();
+
+    // a second save must not duplicate the completion
+    act(() => notifyExplicitSave());
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+      "save",
+    ]);
+  });
+
+  it("an explicit save while some other hint is active does not complete save early", () => {
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+
+    act(() => notifyExplicitSave());
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+    expect(result.current.activeHint).toBe("shape-tool");
   });
 
   it("content that isn't a user mark doesn't complete the hint; a real mark does", () => {

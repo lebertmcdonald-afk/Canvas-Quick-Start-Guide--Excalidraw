@@ -4,10 +4,11 @@ import { createPortal } from "react-dom";
 import type { HintId } from "./types";
 
 /**
- * Day 16 (shape-tool, opt-in prompt) + Day 18 (labeling, the "How to
- * start" link): real content and interactivity, replacing Day 15's inert
- * placeholder. Still visually rough on purpose (Day 19 is polish day) --
- * this is about the interaction being real, not about how it looks.
+ * Day 16 (shape-tool, opt-in prompt) + Day 18 (labeling, connecting, save,
+ * the "How to start" link): real content and interactivity, replacing Day
+ * 15's inert placeholder. Still visually rough on purpose (Day 19 is
+ * polish day) -- this is about the interaction being real, not about how
+ * it looks.
  *
  * Rendered via a portal to document.body for the same reason as Day 15's
  * placeholder: <Excalidraw>'s children render deep inside a tunneled,
@@ -307,6 +308,17 @@ export const QuickstartGuide: React.FC<{
       <HintBubble
         testId="quickstart-hint-connecting"
         text="Draw an arrow to connect two shapes."
+        positionedOverlayStyle={positionedOverlayStyle}
+        onEndGuide={onEndGuide}
+      />
+    );
+  }
+
+  if (activeHint === "save") {
+    return (
+      <HintBubble
+        testId="quickstart-hint-save"
+        text="Your drawing auto-saves in this browser. Use the menu to save a copy."
         positionedOverlayStyle={positionedOverlayStyle}
         onEndGuide={onEndGuide}
       />

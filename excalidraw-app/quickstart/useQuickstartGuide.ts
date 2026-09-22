@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
-import { useAtom } from "../app-jotai";
+import { appJotaiStore, useAtom } from "../app-jotai";
 
 import { HINT_COMPLETION, nextHint } from "./behavior";
 import {
@@ -15,8 +15,40 @@ import {
 import type { HintId } from "./types";
 
 /**
- * Day 16 (shape-tool) + Day 18 (labeling): drives the guide state atoms
- * scaffolded on Day 15.
+ * Marks a hint completed and advances to the next one -- imperative, via
+ * appJotaiStore directly, so it's usable both from inside the hook (where
+ * the atoms are already live via useAtom) and from notifyExplicitSave
+ * below, called from outside any component that has this hook mounted.
+ */
+const completeHintImperatively = (hintId: HintId) => {
+  const completedHints = appJotaiStore.get(completedHintsAtom);
+  if (completedHints.includes(hintId)) {
+    return;
+  }
+  const nextCompleted = [...completedHints, hintId];
+  appJotaiStore.set(completedHintsAtom, nextCompleted);
+  appJotaiStore.set(activeHintAtom, nextHint(nextCompleted));
+};
+
+/**
+ * Completes the save hint -- called directly from the user's explicit save
+ * gestures (AppMainMenu's save/export items, the Cmd+S / Cmd+Shift+E
+ * shortcuts, Excalidraw+ export success; see their markExplicitlySaved()
+ * call sites in unsavedWork.ts), none of which are scene changes, so
+ * notifySceneChange's onChange-driven detection can't see them. A plain
+ * exported function rather than something returned from the hook, since
+ * those call sites live in components (AppMainMenu) that don't otherwise
+ * have this hook's return value in scope.
+ */
+export const notifyExplicitSave = () => {
+  if (appJotaiStore.get(activeHintAtom) === "save") {
+    completeHintImperatively("save");
+  }
+};
+
+/**
+ * Day 16 (shape-tool) + Day 18 (labeling, connecting, save): drives the
+ * guide state atoms scaffolded on Day 15.
  *
  * isNewUser gates whether the guide can appear at all (Day 15's job, still
  * the source of truth); everything below decides what to do once it can.
@@ -33,7 +65,10 @@ export const useQuickstartGuide = (
   const [optedIn, setOptedIn] = useAtom(guideOptedInAtom);
   const [ended, setEnded] = useAtom(guideEndedAtom);
   const [activeHint, setActiveHint] = useAtom(activeHintAtom);
-  const [completedHints, setCompletedHints] = useAtom(completedHintsAtom);
+  // Written only via completeHintImperatively (appJotaiStore.set), which
+  // both notifySceneChange below and notifyExplicitSave (outside this
+  // hook) go through -- so only the reactive value is needed here.
+  const [completedHints] = useAtom(completedHintsAtom);
 
   // Element ids on the canvas when scene detection last looked, while the
   // guide is active. Null whenever it isn't, so users the guide doesn't
@@ -71,13 +106,7 @@ export const useQuickstartGuide = (
     knownElementIdsRef.current = null;
   };
 
-  const completeHint = (hintId: HintId) => {
-    if (!completedHints.includes(hintId)) {
-      const nextCompleted = [...completedHints, hintId];
-      setCompletedHints(nextCompleted);
-      setActiveHint(nextHint(nextCompleted));
-    }
-  };
+  const completeHint = completeHintImperatively;
 
   /**
    * Called on every scene change, wired into the existing onChange handler,
