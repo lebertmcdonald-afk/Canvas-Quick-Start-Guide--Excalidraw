@@ -114,9 +114,7 @@ export const useQuickstartGuide = (
    *    disappears on its own, never repeating. What counts as satisfying it
    *    is per-hint (HINT_COMPLETION in behavior.ts).
    */
-  const notifySceneChange = (
-    elements: readonly OrderedExcalidrawElement[],
-  ) => {
+  const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
     if (!guideApplies) {
       knownElementIdsRef.current = null;
       return;

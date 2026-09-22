@@ -588,9 +588,7 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     expect(result.current.activeHint).toBe("connecting");
 
     const shape2 = makeElement("el2", "diamond");
-    act(() =>
-      result.current.notifySceneChange([shape1, label, stray, shape2]),
-    );
+    act(() => result.current.notifySceneChange([shape1, label, stray, shape2]));
     expect(result.current.activeHint).toBe("connecting");
 
     const link = makeElement("link", "arrow", {
