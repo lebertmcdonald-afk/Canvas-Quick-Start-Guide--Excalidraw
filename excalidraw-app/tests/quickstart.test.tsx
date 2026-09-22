@@ -8,6 +8,8 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { Excalidraw } from "@excalidraw/excalidraw";
+
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
@@ -17,6 +19,7 @@ import {
   findFirstUserMark,
   nextHint,
 } from "../quickstart/behavior";
+import { QuickstartHelpButton } from "../quickstart/QuickstartHelpButton";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
 import {
   activeHintAtom,
@@ -229,16 +232,20 @@ describe("quickstart guide UI", () => {
     expect(onEndGuide).toHaveBeenCalledTimes(1);
   });
 
-  it('the prompt\'s "How to start" link opens the right page in a new tab', () => {
+  it('the prompt no longer carries the "How to start" link (it moved to help)', () => {
     renderUi({ optedIn: false });
-    const link = document.querySelector<HTMLAnchorElement>(
-      '[data-testid="quickstart-how-to-start"]',
+    expect(
+      document.querySelector('[data-testid="quickstart-how-to-start"]'),
+    ).toBe(null);
+    expect(document.body).not.toHaveTextContent("How to start");
+  });
+
+  it("the shape-tool hint's End guide button matches the Share button style", () => {
+    renderUi({ optedIn: true, activeHint: "shape-tool" });
+    const endGuide = document.querySelector<HTMLButtonElement>(
+      '[data-testid="quickstart-end-guide"]',
     )!;
-    expect(link.href).toBe("https://plus.excalidraw.com/how-to-start");
-    expect(link.target).toBe("_blank");
-    // new-tab links without rel="noopener" let the opened page reach back
-    // into window.opener -- a real (if minor) security hole
-    expect(link.rel).toContain("noopener");
+    expect(endGuide.classList.contains("quickstart-btn--primary")).toBe(true);
   });
 
   it("the labeling hint shows PRD copy and an explicit end control", () => {
@@ -727,5 +734,53 @@ describe("quickstart restart from Help", () => {
     );
     expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
     expect(result.current.activeHint).toBe("labeling");
+  });
+});
+
+describe("quickstart actions in the shortcuts-and-help dialog", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it('renders "Show guide" and the moved "Getting started" link, styled like the other help buttons', async () => {
+    const onRestart = vi.fn();
+    render(
+      <Excalidraw>
+        <QuickstartHelpButton onRestart={onRestart} />
+      </Excalidraw>,
+    );
+    await waitFor(() => expect(window.h).toBeTruthy());
+    act(() => {
+      window.h.app.setOpenDialog({ name: "help" });
+    });
+
+    const link = await waitFor(() => {
+      const el = document.querySelector<HTMLAnchorElement>(
+        '[data-testid="quickstart-how-to-start"]',
+      );
+      if (!el) {
+        throw new Error("how-to-start link not in help dialog yet");
+      }
+      return el;
+    });
+
+    // the moved link keeps its new-tab safety and blends in with the
+    // dialog's own Documentation / Blog / GitHub / YouTube buttons
+    expect(link.href).toBe("https://plus.excalidraw.com/how-to-start");
+    // new-tab links without rel="noopener" let the opened page reach back
+    // into window.opener -- a real (if minor) security hole
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toContain("noopener");
+    expect(link.classList.contains("HelpDialog__btn")).toBe(true);
+    expect(link.textContent).toContain("Getting started");
+
+    const restart = document.querySelector<HTMLButtonElement>(
+      '[data-testid="quickstart-restart"]',
+    )!;
+    expect(restart.textContent).toContain("Show guide");
+    fireEvent.click(restart);
+    expect(onRestart).toHaveBeenCalledTimes(1);
   });
 });
