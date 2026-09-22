@@ -178,6 +178,35 @@ const SHAPE_TOOL_HIGHLIGHT_STYLES = `
 }
 `;
 
+/**
+ * Shared shape for hints that are just text + the always-present, explicit
+ * "end the guide" control (PRD P0 -- not only an implicit dismiss). The
+ * shape-tool hint stays its own case above since it also needs the toolbar
+ * highlight <style> tag; labeling and connecting don't need anything extra.
+ */
+const HintBubble: React.FC<{
+  testId: string;
+  text: string;
+  positionedOverlayStyle: React.CSSProperties;
+  onEndGuide: () => void;
+}> = ({ testId, text, positionedOverlayStyle, onEndGuide }) =>
+  createPortal(
+    <>
+      <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
+      <div data-testid={testId} style={positionedOverlayStyle}>
+        <span>{text}</span>
+        <button
+          className="quickstart-btn"
+          data-testid="quickstart-end-guide"
+          onClick={onEndGuide}
+        >
+          End guide
+        </button>
+      </div>
+    </>,
+    document.body,
+  );
+
 export const QuickstartGuide: React.FC<{
   isVisible: boolean;
   optedIn: boolean;
@@ -263,24 +292,24 @@ export const QuickstartGuide: React.FC<{
   }
 
   if (activeHint === "labeling") {
-    return createPortal(
-      <>
-        <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
-        <div
-          data-testid="quickstart-hint-labeling"
-          style={positionedOverlayStyle}
-        >
-          <span>Double-click a shape to name this step.</span>
-          <button
-            className="quickstart-btn"
-            data-testid="quickstart-end-guide"
-            onClick={onEndGuide}
-          >
-            End guide
-          </button>
-        </div>
-      </>,
-      document.body,
+    return (
+      <HintBubble
+        testId="quickstart-hint-labeling"
+        text="Double-click a shape to name this step."
+        positionedOverlayStyle={positionedOverlayStyle}
+        onEndGuide={onEndGuide}
+      />
+    );
+  }
+
+  if (activeHint === "connecting") {
+    return (
+      <HintBubble
+        testId="quickstart-hint-connecting"
+        text="Draw an arrow to connect two shapes."
+        positionedOverlayStyle={positionedOverlayStyle}
+        onEndGuide={onEndGuide}
+      />
     );
   }
 

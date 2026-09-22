@@ -21,10 +21,15 @@ const USER_MARK_ELEMENT_TYPES = new Set<string>([
 
 /**
  * Hints with real content implemented so far. Day 16 implemented the first;
- * Day 18 adds labeling. Each later day adds its hint here and the chain
- * starts advancing to it automatically once the previous hint completes.
+ * Day 18 adds labeling and connecting. Each later day adds its hint here and
+ * the chain starts advancing to it automatically once the previous hint
+ * completes.
  */
-const IMPLEMENTED_HINTS: readonly HintId[] = ["shape-tool", "labeling"];
+const IMPLEMENTED_HINTS: readonly HintId[] = [
+  "shape-tool",
+  "labeling",
+  "connecting",
+];
 
 /** The first implemented hint the user hasn't completed yet, or null. */
 export const nextHint = (completedHints: readonly HintId[]): HintId | null =>
@@ -81,6 +86,33 @@ export const hasUserLabel = (
 ): boolean => elements.some((element) => isUserLabel(element));
 
 /**
+ * Does this element read as the user connecting two shapes? An arrow bound
+ * at *both* ends (startBinding and endBinding both set) to two *different*
+ * shapes -- not just any arrow, matching the PRD's "connect two steps with
+ * an arrow", and not a loop back onto the same shape, which doesn't connect
+ * two steps.
+ */
+export const isUserConnection = (element: OrderedExcalidrawElement): boolean =>
+  !element.isDeleted &&
+  element.type === "arrow" &&
+  element.startBinding != null &&
+  element.endBinding != null &&
+  element.startBinding.elementId !== element.endBinding.elementId;
+
+/** Same shape as findFirstUserMark, for the connecting hint's completion check. */
+export const findFirstUserConnection = (
+  knownIds: ReadonlySet<string>,
+  elements: readonly OrderedExcalidrawElement[],
+): OrderedExcalidrawElement | null =>
+  elements.find(
+    (element) => !knownIds.has(element.id) && isUserConnection(element),
+  ) ?? null;
+
+export const hasUserConnection = (
+  elements: readonly OrderedExcalidrawElement[],
+): boolean => elements.some((element) => isUserConnection(element));
+
+/**
  * Per-hint completion check: what counts as "the user did this hint's
  * action." Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
@@ -100,4 +132,8 @@ export const HINT_COMPLETION: Partial<
 > = {
   "shape-tool": { hasAny: hasUserMark, findFirstNew: findFirstUserMark },
   labeling: { hasAny: hasUserLabel, findFirstNew: findFirstUserLabel },
+  connecting: {
+    hasAny: hasUserConnection,
+    findFirstNew: findFirstUserConnection,
+  },
 };

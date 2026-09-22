@@ -12,6 +12,7 @@ import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
 import {
+  findFirstUserConnection,
   findFirstUserLabel,
   findFirstUserMark,
   nextHint,
@@ -43,6 +44,21 @@ const makeLabel = (id: string, containerId: string, isDeleted = false) =>
     id,
     type: "text",
     containerId,
+    isDeleted,
+  } as unknown as OrderedExcalidrawElement);
+
+/** An arrow, optionally bound at each end -- pass null for an unbound end. */
+const makeArrow = (
+  id: string,
+  startElementId: string | null,
+  endElementId: string | null,
+  isDeleted = false,
+) =>
+  ({
+    id,
+    type: "arrow",
+    startBinding: startElementId ? { elementId: startElementId } : null,
+    endBinding: endElementId ? { elementId: endElementId } : null,
     isDeleted,
   } as unknown as OrderedExcalidrawElement);
 
@@ -80,7 +96,8 @@ describe("quickstart behavior logic", () => {
   it("nextHint returns the first implemented, uncompleted hint", () => {
     expect(nextHint([])).toBe("shape-tool");
     expect(nextHint(["shape-tool"])).toBe("labeling");
-    expect(nextHint(["shape-tool", "labeling"])).toBeNull();
+    expect(nextHint(["shape-tool", "labeling"])).toBe("connecting");
+    expect(nextHint(["shape-tool", "labeling", "connecting"])).toBeNull();
     expect(nextHint(["labeling"])).toBe("shape-tool");
   });
 
@@ -119,6 +136,37 @@ describe("quickstart behavior logic", () => {
     // deleted: not a label
     expect(
       findFirstUserLabel(known, [makeLabel("b", "shape1", true)]),
+    ).toBeNull();
+  });
+
+  it("findFirstUserConnection detects an arrow bound at both ends to different shapes", () => {
+    const known = new Set(["a", "b"]);
+    expect(
+      findFirstUserConnection(known, [
+        makeElement("a", "rectangle"),
+        makeElement("b", "ellipse"),
+        makeArrow("c", "a", "b"),
+      ])?.id,
+    ).toBe("c");
+    // only one end bound: not a connection
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", null)]),
+    ).toBeNull();
+    // neither end bound: not a connection
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", null, null)]),
+    ).toBeNull();
+    // both ends bound to the *same* shape: doesn't connect two steps
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", "a")]),
+    ).toBeNull();
+    // already-known id: not new
+    expect(
+      findFirstUserConnection(known, [makeArrow("a", "a", "b")]),
+    ).toBeNull();
+    // deleted: not a connection
+    expect(
+      findFirstUserConnection(known, [makeArrow("c", "a", "b", true)]),
     ).toBeNull();
   });
 });
@@ -190,6 +238,24 @@ describe("quickstart guide UI", () => {
       "Double-click a shape to name this step.",
     );
     // no shape-tool-specific toolbar highlight while labeling is active
+    expect(
+      document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
+    ).toBe(null);
+
+    fireEvent.click(
+      document.querySelector('[data-testid="quickstart-end-guide"]')!,
+    );
+    expect(onEndGuide).toHaveBeenCalledTimes(1);
+  });
+
+  it("the connecting hint shows PRD copy and an explicit end control", () => {
+    const { onEndGuide } = renderUi({
+      optedIn: true,
+      activeHint: "connecting",
+    });
+    expect(document.body).toHaveTextContent(
+      "Draw an arrow to connect two shapes.",
+    );
     expect(
       document.querySelector('[data-testid="quickstart-shape-tool-styles"]'),
     ).toBe(null);
@@ -340,8 +406,7 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       "shape-tool",
       "labeling",
     ]);
-    // connecting isn't implemented yet, so the chain has nowhere further to go
-    expect(result.current.activeHint).toBeNull();
+    expect(result.current.activeHint).toBe("connecting");
 
     // a second label must not duplicate the completion
     act(() =>
@@ -355,6 +420,92 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     expect(appJotaiStore.get(completedHintsAtom)).toEqual([
       "shape-tool",
       "labeling",
+    ]);
+  });
+
+  const completeShapeToolAndLabeling = (result: {
+    current: ReturnType<typeof useQuickstartGuide>;
+  }) => {
+    optInAndShowShapeHint(result);
+    act(() => result.current.notifySceneChange([])); // baseline
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+  };
+
+  it("connecting two shapes with an arrow completes that hint on its own, once; a loose or self-looped arrow doesn't", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    // one end unbound: not a connection
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow1", "el1", null),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    expect(result.current.activeHint).toBe("connecting");
+
+    // both ends bound to the same shape: doesn't connect two steps
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow1", "el1", "el1"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    expect(result.current.activeHint).toBe("connecting");
+
+    // a real arrow connecting the two shapes
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow2", "el1", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    // save isn't implemented yet, so the chain has nowhere further to go
+    expect(result.current.activeHint).toBeNull();
+
+    // a second connecting arrow must not duplicate the completion
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl1", "el1"),
+        makeArrow("arrow2", "el1", "el2"),
+        makeArrow("arrow3", "el1", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
     ]);
   });
 
