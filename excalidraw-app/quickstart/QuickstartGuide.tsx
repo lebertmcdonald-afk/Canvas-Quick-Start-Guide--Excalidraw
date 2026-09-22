@@ -166,11 +166,15 @@ const BUTTON_STYLES = `
  */
 const HOW_TO_START_URL = "https://plus.excalidraw.com/how-to-start";
 
-const SHAPE_TOOL_HIGHLIGHT_STYLES = `
+const HINT_PULSE = `
 @keyframes quickstart-hint-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
   50% { box-shadow: 0 0 0 6px rgba(105, 101, 219, 0.5); }
 }
+`;
+
+const SHAPE_TOOL_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
 .excalidraw button[data-testid="toolbar-rectangle"],
 .excalidraw button[data-testid="toolbar-diamond"],
 .excalidraw button[data-testid="toolbar-ellipse"] {
@@ -178,34 +182,12 @@ const SHAPE_TOOL_HIGHLIGHT_STYLES = `
 }
 `;
 
-/**
- * Shared shape for hints that are just text + the always-present, explicit
- * "end the guide" control (PRD P0 -- not only an implicit dismiss). The
- * shape-tool hint stays its own case above since it also needs the toolbar
- * highlight <style> tag; labeling and connecting don't need anything extra.
- */
-const HintBubble: React.FC<{
-  testId: string;
-  text: string;
-  positionedOverlayStyle: React.CSSProperties;
-  onEndGuide: () => void;
-}> = ({ testId, text, positionedOverlayStyle, onEndGuide }) =>
-  createPortal(
-    <>
-      <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
-      <div data-testid={testId} style={positionedOverlayStyle}>
-        <span>{text}</span>
-        <button
-          className="quickstart-btn"
-          data-testid="quickstart-end-guide"
-          onClick={onEndGuide}
-        >
-          End guide
-        </button>
-      </div>
-    </>,
-    document.body,
-  );
+const ARROW_TOOL_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw button[data-testid="toolbar-arrow"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
 
 export const QuickstartGuide: React.FC<{
   isVisible: boolean;
@@ -263,21 +245,15 @@ export const QuickstartGuide: React.FC<{
     );
   }
 
-  if (activeHint === "shape-tool") {
-    return createPortal(
+  const hintCard = (testid: string, copy: string, highlight?: string) =>
+    createPortal(
       <>
         <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
-        <style data-testid="quickstart-shape-tool-styles">
-          {SHAPE_TOOL_HIGHLIGHT_STYLES}
-        </style>
-        <div
-          data-testid="quickstart-hint-shape-tool"
-          style={positionedOverlayStyle}
-        >
-          <span>
-            Pick a highlighted shape tool in the toolbar, then draw your first
-            shape.
-          </span>
+        {highlight && (
+          <style data-testid={`${testid}-styles`}>{highlight}</style>
+        )}
+        <div data-testid={testid} style={positionedOverlayStyle}>
+          <span>{copy}</span>
           <button
             className="quickstart-btn"
             data-testid="quickstart-end-guide"
@@ -289,27 +265,27 @@ export const QuickstartGuide: React.FC<{
       </>,
       document.body,
     );
+
+  if (activeHint === "shape-tool") {
+    return hintCard(
+      "quickstart-hint-shape-tool",
+      "Pick a highlighted shape tool in the toolbar, then draw your first shape.",
+      SHAPE_TOOL_HIGHLIGHT_STYLES,
+    );
   }
 
   if (activeHint === "labeling") {
-    return (
-      <HintBubble
-        testId="quickstart-hint-labeling"
-        text="Double-click a shape to name this step."
-        positionedOverlayStyle={positionedOverlayStyle}
-        onEndGuide={onEndGuide}
-      />
+    return hintCard(
+      "quickstart-hint-labeling",
+      "Double-click a shape to name this step.",
     );
   }
 
   if (activeHint === "connecting") {
-    return (
-      <HintBubble
-        testId="quickstart-hint-connecting"
-        text="Draw an arrow to connect two shapes."
-        positionedOverlayStyle={positionedOverlayStyle}
-        onEndGuide={onEndGuide}
-      />
+    return hintCard(
+      "quickstart-hint-connecting",
+      "Draw an arrow to connect two shapes.",
+      ARROW_TOOL_HIGHLIGHT_STYLES,
     );
   }
 

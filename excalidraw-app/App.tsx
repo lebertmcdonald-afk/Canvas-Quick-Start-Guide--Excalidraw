@@ -143,6 +143,7 @@ import {
 } from "./unsavedWork";
 import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
+import { QuickstartHelpButton } from "./quickstart/QuickstartHelpButton";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
 import { useQuickstartGuide } from "./quickstart/useQuickstartGuide";
 import { getPreferredLanguage } from "./app-language/language-detector";
@@ -1118,6 +1119,12 @@ const ExcalidrawWrapper = () => {
           activeHint={quickstart.activeHint}
           onOptIn={quickstart.optIn}
           onEndGuide={quickstart.endGuide}
+        />
+        <QuickstartHelpButton
+          onRestart={quickstart.restartGuide}
+          onCloseHelp={() => {
+            excalidrawAPI?.updateScene({ appState: { openDialog: null } });
+          }}
         />
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
