@@ -13,6 +13,7 @@ import { Excalidraw } from "@excalidraw/excalidraw";
 import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { appJotaiStore, Provider } from "../app-jotai";
+import { AppMainMenu } from "../components/AppMainMenu";
 import {
   findFirstUserConnection,
   findFirstUserLabel,
@@ -1031,5 +1032,70 @@ describe("quickstart actions in the shortcuts-and-help dialog", () => {
     expect(restart.textContent).toContain("Show guide");
     fireEvent.click(restart);
     expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("save hint completion from the main menu", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it("a real click on a save menu item completes the save hint", async () => {
+    appJotaiStore.set(guideOptedInAtom, true);
+    appJotaiStore.set(completedHintsAtom, [
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    appJotaiStore.set(activeHintAtom, "save");
+
+    // <MainMenu>'s children are tunneled into the editor's tree, so this has
+    // to go through the real menu: a handler wrapped around <MainMenu> in
+    // AppMainMenu would never see the click
+    render(
+      <Provider store={appJotaiStore}>
+        <Excalidraw>
+          <AppMainMenu
+            onCollabDialogOpen={() => {}}
+            isCollaborating={false}
+            isCollabEnabled={false}
+            theme="light"
+            refresh={() => {}}
+          />
+        </Excalidraw>
+      </Provider>,
+    );
+
+    const trigger = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        '[data-testid="main-menu-trigger"]',
+      );
+      if (!el) {
+        throw new Error("main menu trigger not mounted yet");
+      }
+      return el;
+    });
+    fireEvent.click(trigger);
+
+    const saveItem = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        '[data-testid="image-export-button"]',
+      );
+      if (!el) {
+        throw new Error("save menu item not open yet");
+      }
+      return el;
+    });
+    fireEvent.click(saveItem);
+
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+      "save",
+    ]);
+    expect(appJotaiStore.get(activeHintAtom)).toBeNull();
   });
 });

@@ -32,19 +32,24 @@ export const AppMainMenu: React.FC<{
   refresh: () => void;
 }> = React.memo((props) => {
   const { t } = useI18n();
+
+  // MainMenu's children are tunneled into the editor's own React tree, so a
+  // React handler wrapped around <MainMenu> here never sees their clicks --
+  // listen natively instead to record the user's save gestures for the
+  // unsaved-work alert (see unsavedWork.ts) and the quickstart save hint
+  React.useEffect(() => {
+    const onClickCapture = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest(SAVE_MENU_ITEM_SELECTOR)) {
+        markExplicitlySaved();
+        notifyExplicitSave();
+      }
+    };
+    document.addEventListener("click", onClickCapture, true);
+    return () => document.removeEventListener("click", onClickCapture, true);
+  }, []);
+
   return (
-    // display: contents keeps the menu's own layout untouched; the capture
-    // phase records the user's save gestures for the unsaved-work alert
-    // (see unsavedWork.ts)
-    <div
-      style={{ display: "contents" }}
-      onClickCapture={(event) => {
-        if ((event.target as HTMLElement).closest(SAVE_MENU_ITEM_SELECTOR)) {
-          markExplicitlySaved();
-          notifyExplicitSave();
-        }
-      }}
-    >
+    <>
       <MainMenu>
         <MainMenu.DefaultItems.LoadScene />
         <MainMenu.DefaultItems.SaveToActiveFile />
@@ -108,6 +113,6 @@ export const AppMainMenu: React.FC<{
         </MainMenu.ItemCustom>
         <MainMenu.DefaultItems.ChangeCanvasBackground />
       </MainMenu>
-    </div>
+    </>
   );
 });
