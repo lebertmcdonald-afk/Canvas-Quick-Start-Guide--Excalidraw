@@ -534,6 +534,37 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     ]);
   });
 
+  it("an arrow created unbound then bound to two shapes still completes connecting", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    const shapes = [
+      makeElement("el1", "rectangle"),
+      makeElement("el2", "ellipse"),
+      makeLabel("lbl1", "el1"),
+    ];
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeArrow("arrow1", null, null),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeArrow("arrow1", "el1", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBeNull();
+  });
+
   it("content that isn't a user mark doesn't complete the hint; a real mark does", () => {
     const { result } = renderGuideHook(true);
     optInAndShowShapeHint(result);

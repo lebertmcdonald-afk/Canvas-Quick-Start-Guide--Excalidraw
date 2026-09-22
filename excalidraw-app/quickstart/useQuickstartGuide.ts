@@ -46,6 +46,11 @@ export const useQuickstartGuide = (
   // After a Help-menu restart, existing canvas content is baselined and
   // must not instantly complete hints or dismiss the prompt (P1).
   const skipBaselineCompletionRef = useRef(false);
+  // Ids that already satisfy the *current* hint. Re-seeded from the last
+  // seen scene when the hint changes, so existing content doesn't finish
+  // the new hint, but an arrow created unbound and then bound still does.
+  const satisfiedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
 
   const guideApplies = (isNewUser === true || forcedVisible) && !ended;
   const isVisible = guideApplies;
@@ -69,6 +74,17 @@ export const useQuickstartGuide = (
     }
   }, [optedIn, ended, completedHints, activeHint, setActiveHint]);
 
+  useEffect(() => {
+    const completion = activeHint ? HINT_COMPLETION[activeHint] : undefined;
+    satisfiedIdsRef.current = completion
+      ? new Set(
+          lastElementsRef.current
+            .filter((element) => completion.findFirstNew(new Set(), [element]))
+            .map((element) => element.id),
+        )
+      : new Set();
+  }, [activeHint]);
+
   const optIn = () => setOptedIn(true);
 
   /** The explicit, visible "end the guide" control -- PRD P0. */
@@ -77,6 +93,8 @@ export const useQuickstartGuide = (
     setActiveHint(null);
     knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = false;
+    satisfiedIdsRef.current = new Set();
+    lastElementsRef.current = [];
   };
 
   /**
@@ -92,6 +110,7 @@ export const useQuickstartGuide = (
     setActiveHint(nextHint([]));
     knownElementIdsRef.current = null;
     skipBaselineCompletionRef.current = true;
+    satisfiedIdsRef.current = new Set();
   };
 
   const completeHint = (hintId: HintId) => {
@@ -115,6 +134,8 @@ export const useQuickstartGuide = (
    *    is per-hint (HINT_COMPLETION in behavior.ts).
    */
   const notifySceneChange = (elements: readonly OrderedExcalidrawElement[]) => {
+    lastElementsRef.current = elements;
+
     if (!guideApplies) {
       knownElementIdsRef.current = null;
       return;
@@ -132,6 +153,13 @@ export const useQuickstartGuide = (
       completion !== undefined &&
       activeHint !== null &&
       !completedHints.includes(activeHint);
+    const matchingIds = completion
+      ? new Set(
+          elements
+            .filter((element) => completion.findFirstNew(new Set(), [element]))
+            .map((element) => element.id),
+        )
+      : new Set<string>();
 
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
@@ -143,19 +171,23 @@ export const useQuickstartGuide = (
       );
       if (skipBaselineCompletionRef.current) {
         skipBaselineCompletionRef.current = false;
+        satisfiedIdsRef.current = matchingIds;
         return;
       }
+      satisfiedIdsRef.current = matchingIds;
       if (hintPending && completion.hasAny(elements)) {
         completeHint(activeHint as HintId);
       }
       return;
     }
 
-    const createdMatch = hintPending
-      ? completion.findFirstNew(knownElementIdsRef.current, elements)
-      : null;
+    const previouslySatisfied = satisfiedIdsRef.current;
+    const newlySatisfied = [...matchingIds].some(
+      (id) => !previouslySatisfied.has(id),
+    );
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
-    if (hintPending && createdMatch) {
+    satisfiedIdsRef.current = matchingIds;
+    if (hintPending && newlySatisfied) {
       completeHint(activeHint as HintId);
     }
   };
