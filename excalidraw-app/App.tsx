@@ -145,6 +145,7 @@ import CollabError, { collabErrorIndicatorAtom } from "./collab/CollabError";
 import { useHandleAppTheme } from "./useHandleAppTheme";
 import { QuickstartHelpButton } from "./quickstart/QuickstartHelpButton";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
+import { isRemoteSceneUpdate } from "./quickstart/remoteScene";
 import {
   notifyExplicitSave,
   useQuickstartGuide,
@@ -791,7 +792,9 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    quickstart.notifySceneChange(elements);
+    quickstart.notifySceneChange(elements, {
+      isRemote: isRemoteSceneUpdate(),
+    });
     noteSceneChange(elements);
 
     if (collabAPI?.isCollaborating()) {

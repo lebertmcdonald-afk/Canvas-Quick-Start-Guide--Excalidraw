@@ -186,6 +186,56 @@ describe("quickstart behavior logic", () => {
     expect(
       findFirstUserConnection(known, [makeArrow("c", "a", "b", true)]),
     ).toBeNull();
+    // an arrow whose endpoints sit on two different shapes counts even
+    // with no bindings -- Excalidraw leaves a drag that starts on a
+    // shape's bound label unbound, and the user still connected two steps
+    expect(
+      findFirstUserConnection(new Set(), [
+        makeElement("el1", "rectangle", {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("el2", "rectangle", {
+          x: 300,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("link", "arrow", {
+          x: 50,
+          y: 50,
+          points: [
+            [0, 0],
+            [280, 0],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ])?.id,
+    ).toBe("link");
+    // ...but an arrow drawn on empty canvas still isn't a connection
+    expect(
+      findFirstUserConnection(new Set(), [
+        makeElement("el1", "rectangle", {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+        }),
+        makeElement("stray", "arrow", {
+          x: 600,
+          y: 600,
+          points: [
+            [0, 0],
+            [80, 40],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ]),
+    ).toBeNull();
   });
 });
 
@@ -559,6 +609,113 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
       "labeling",
       "connecting",
     ]);
+  });
+
+  it("an arrow created unbound and bound a moment later still completes connecting", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    const shapes = [
+      makeElement("el1", "rectangle"),
+      makeElement("el2", "ellipse"),
+      makeLabel("lbl1", "el1"),
+    ];
+    // Excalidraw inserts the arrow first...
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeArrow("arrow1", null, null),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("connecting");
+
+    // ...then binds that same id, which is when it becomes a connection
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeArrow("arrow1", "el1", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBe("save");
+  });
+
+  it("an arrow whose endpoints sit on two shapes completes connecting without bindings", () => {
+    const { result } = renderGuideHook(true);
+    completeShapeToolAndLabeling(result);
+
+    const shapes = [
+      makeElement("el1", "rectangle", { x: 0, y: 0, width: 100, height: 100 }),
+      makeElement("el2", "ellipse", { x: 300, y: 0, width: 100, height: 100 }),
+      makeLabel("lbl1", "el1"),
+    ];
+    act(() => result.current.notifySceneChange(shapes));
+    expect(result.current.activeHint).toBe("connecting");
+
+    act(() =>
+      result.current.notifySceneChange([
+        ...shapes,
+        makeElement("drawn", "arrow", {
+          x: 50,
+          y: 50,
+          points: [
+            [0, 0],
+            [280, 0],
+          ],
+          startBinding: null,
+          endBinding: null,
+        }),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+      "connecting",
+    ]);
+    expect(result.current.activeHint).toBe("save");
+  });
+
+  it("a remote collaborator's edits don't complete a hint or dismiss the prompt", () => {
+    const { result } = renderGuideHook(true);
+    expect(result.current.isVisible).toBe(true);
+
+    // P1 is the *local* user starting to draw; a collaborator's shape
+    // must leave the opt-in prompt up
+    act(() =>
+      result.current.notifySceneChange([makeElement("remote1", "rectangle")], {
+        isRemote: true,
+      }),
+    );
+    expect(appJotaiStore.get(guideEndedAtom)).toBe(false);
+    expect(result.current.isVisible).toBe(true);
+
+    optInAndShowShapeHint(result);
+    act(() =>
+      result.current.notifySceneChange(
+        [
+          makeElement("remote1", "rectangle"),
+          makeElement("remote2", "diamond"),
+        ],
+        { isRemote: true },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([]);
+    expect(result.current.activeHint).toBe("shape-tool");
+
+    // the local user's own mark still completes it
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("remote1", "rectangle"),
+        makeElement("remote2", "diamond"),
+        makeElement("local1", "ellipse"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+    expect(result.current.activeHint).toBe("labeling");
   });
 
   const completeThroughConnecting = (result: {
