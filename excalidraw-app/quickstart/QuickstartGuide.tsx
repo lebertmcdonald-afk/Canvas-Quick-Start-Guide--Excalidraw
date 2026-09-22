@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import type { HintId } from "./types";
 
 /**
- * Day 16: real content and interactivity, replacing Day 15's inert
+ * Day 16 (shape-tool, opt-in prompt) + Day 18 (labeling, the "How to
+ * start" link): real content and interactivity, replacing Day 15's inert
  * placeholder. Still visually rough on purpose (Day 19 is polish day) --
  * this is about the interaction being real, not about how it looks.
  *
@@ -115,6 +116,11 @@ const BUTTON_STYLES = `
   padding: 6px 10px;
   border-radius: 0.375rem;
   cursor: pointer;
+  /* also used on the "How to start" <a>: an anchor needs its link
+     defaults overridden to actually read as a button. Harmless on
+     <button>, which doesn't have either default to begin with. */
+  text-decoration: none;
+  display: inline-block;
 }
 .quickstart-btn:hover {
   background: #f1f0ff;
@@ -158,6 +164,8 @@ const BUTTON_STYLES = `
  * showing, so it leaves no trace once the guide moves on or ends -- and
  * box-shadow can't shift layout or intercept pointer events on the tools.
  */
+const HOW_TO_START_URL = "https://plus.excalidraw.com/how-to-start";
+
 const HINT_PULSE = `
 @keyframes quickstart-hint-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
@@ -220,6 +228,17 @@ export const QuickstartGuide: React.FC<{
           >
             Keep drawing
           </button>
+          {/* Opens in a new tab so it doesn't pull the user off whatever's
+              already on their canvas. */}
+          <a
+            className="quickstart-btn quickstart-btn--secondary"
+            data-testid="quickstart-how-to-start"
+            href={HOW_TO_START_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            How to start with Excalidraw
+          </a>
         </div>
       </>,
       document.body,
@@ -258,7 +277,7 @@ export const QuickstartGuide: React.FC<{
   if (activeHint === "labeling") {
     return hintCard(
       "quickstart-hint-labeling",
-      "Select the shape and press Enter to add a label.",
+      "Double-click a shape to name this step.",
     );
   }
 

@@ -4,14 +4,7 @@ import type { OrderedExcalidrawElement } from "@excalidraw/element/types";
 
 import { useAtom } from "../app-jotai";
 
-import {
-  findConnectingArrowIds,
-  findFirstNewId,
-  findFirstUserMark,
-  findLabeledContainerIds,
-  hasUserMark,
-  nextHint,
-} from "./behavior";
+import { HINT_COMPLETION, nextHint } from "./behavior";
 import {
   activeHintAtom,
   completedHintsAtom,
@@ -22,16 +15,14 @@ import {
 
 import type { HintId } from "./types";
 
-export type SceneChangeMeta = {
-  /** True while the user is still in the text editor (Enter-to-label). */
-  isEditingText?: boolean;
-};
-
 /**
- * Day 16 + Day 18: drives the guide state atoms scaffolded on Day 15.
+ * Day 16 (shape-tool) + Day 18 (labeling/connecting): drives the guide
+ * state atoms scaffolded on Day 15.
  *
  * isNewUser gates whether the guide can appear at all (Day 15's job, still
  * the source of truth); everything below decides what to do once it can.
+ * restartGuide can force the guide back on after dismiss or for a
+ * returning browser that Help asked to see it again.
  *
  * markGuideSeen persists "this browser has seen the guide" for *future*
  * sessions -- called once, on exposure, not on completion. It must not
@@ -52,11 +43,6 @@ export const useQuickstartGuide = (
   // guide is active. Null whenever it isn't, so users the guide doesn't
   // apply to never pay for any of this.
   const knownElementIdsRef = useRef<ReadonlySet<string> | null>(null);
-  // Shapes already labeled / arrows already connecting two shapes, so
-  // starter content, imports, and remote scene dumps get baselined instead
-  // of counting as the user completing the hint.
-  const knownLabeledIdsRef = useRef<ReadonlySet<string> | null>(null);
-  const knownConnectedIdsRef = useRef<ReadonlySet<string> | null>(null);
   // After a Help-menu restart, existing canvas content is baselined and
   // must not instantly complete hints or dismiss the prompt (P1).
   const skipBaselineCompletionRef = useRef(false);
@@ -90,8 +76,6 @@ export const useQuickstartGuide = (
     setEnded(true);
     setActiveHint(null);
     knownElementIdsRef.current = null;
-    knownLabeledIdsRef.current = null;
-    knownConnectedIdsRef.current = null;
     skipBaselineCompletionRef.current = false;
   };
 
@@ -107,8 +91,6 @@ export const useQuickstartGuide = (
     setCompletedHints([]);
     setActiveHint(nextHint([]));
     knownElementIdsRef.current = null;
-    knownLabeledIdsRef.current = null;
-    knownConnectedIdsRef.current = null;
     skipBaselineCompletionRef.current = true;
   };
 
@@ -125,26 +107,18 @@ export const useQuickstartGuide = (
    * so it only observes drawing after Excalidraw has applied it -- it can't
    * introduce delay or gate the canvas. Jobs:
    *  - users the guide doesn't apply to (or who ended it): clear the
-   *    baselines and get out immediately (the P0 exit check).
+   *    baseline and get out immediately (the P0 exit check).
    *  - if the user never opted in and just starts drawing on their own,
    *    the prompt gets out of the way on that first interaction (PRD P1).
-   *  - if the active hint is one the user just satisfied, it completes
-   *    and disappears on its own, never repeating.
-   *
-   * Shape-tool completion is mark-based (new authored element). Labeling
-   * waits until bound text has content *and* the editor is closed, so an
-   * empty Enter or mid-type state doesn't advance. Connecting requires an
-   * arrow bound at both ends to two different shapes -- a stray unbound
-   * arrow does not count.
+   *  - if the active hint is one the user just satisfied, it completes and
+   *    disappears on its own, never repeating. What counts as satisfying it
+   *    is per-hint (HINT_COMPLETION in behavior.ts).
    */
   const notifySceneChange = (
     elements: readonly OrderedExcalidrawElement[],
-    meta?: SceneChangeMeta,
   ) => {
     if (!guideApplies) {
       knownElementIdsRef.current = null;
-      knownLabeledIdsRef.current = null;
-      knownConnectedIdsRef.current = null;
       return;
     }
 
@@ -155,66 +129,36 @@ export const useQuickstartGuide = (
       return;
     }
 
-    const labeledIds = findLabeledContainerIds(elements);
-    const connectedIds = findConnectingArrowIds(elements);
+    const completion = activeHint ? HINT_COMPLETION[activeHint] : undefined;
+    const hintPending =
+      completion !== undefined &&
+      activeHint !== null &&
+      !completedHints.includes(activeHint);
 
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
       // predates the guide, so it baselines instead of counting as new --
-      // unless it already includes an authored mark, which satisfies the
-      // shape hint outright (no point teaching a finished step).
+      // unless it already satisfies the active hint outright (no point
+      // teaching a finished step).
       knownElementIdsRef.current = new Set(
         elements.map((element) => element.id),
       );
-      knownLabeledIdsRef.current = labeledIds;
-      knownConnectedIdsRef.current = connectedIds;
       if (skipBaselineCompletionRef.current) {
         skipBaselineCompletionRef.current = false;
         return;
       }
-      if (
-        activeHint === "shape-tool" &&
-        !completedHints.includes("shape-tool") &&
-        hasUserMark(elements)
-      ) {
-        completeHint("shape-tool");
+      if (hintPending && completion.hasAny(elements)) {
+        completeHint(activeHint as HintId);
       }
       return;
     }
 
-    const createdMark = findFirstUserMark(knownElementIdsRef.current, elements);
+    const createdMatch = hintPending
+      ? completion.findFirstNew(knownElementIdsRef.current, elements)
+      : null;
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
-
-    if (
-      activeHint === "shape-tool" &&
-      !completedHints.includes("shape-tool") &&
-      createdMark
-    ) {
-      completeHint("shape-tool");
-    }
-
-    if (activeHint === "labeling" && !completedHints.includes("labeling")) {
-      const knownLabeled = knownLabeledIdsRef.current ?? new Set<string>();
-      const newLabel = findFirstNewId(knownLabeled, labeledIds);
-      // Don't baseline an in-progress label: otherwise Escape after typing
-      // would see the container as already-known and never complete.
-      if (newLabel && !meta?.isEditingText) {
-        knownLabeledIdsRef.current = labeledIds;
-        completeHint("labeling");
-      }
-    } else {
-      knownLabeledIdsRef.current = labeledIds;
-    }
-
-    if (activeHint === "connecting" && !completedHints.includes("connecting")) {
-      const knownConnected = knownConnectedIdsRef.current ?? new Set<string>();
-      const newConnection = findFirstNewId(knownConnected, connectedIds);
-      knownConnectedIdsRef.current = connectedIds;
-      if (newConnection) {
-        completeHint("connecting");
-      }
-    } else {
-      knownConnectedIdsRef.current = connectedIds;
+    if (hintPending && createdMatch) {
+      completeHint(activeHint as HintId);
     }
   };
 
