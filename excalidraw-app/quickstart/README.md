@@ -5,8 +5,9 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 | File | Owns | Day |
 | --- | --- | --- |
 | `useIsNewCanvasUser.ts` | Eligibility check (3 signals) | Day 15 — Lebert |
-| `useQuickstartGuide.ts` | Guide behavior: opt-in, hint progression, end-guide, exposure→seen-flag, scene detection | Day 16 — Jason, extended Day 18 — Lebert |
-| `QuickstartGuide.tsx` | Prompt + hint UI (incl. the shape-tool toolbar highlight, the "How to start" link) | Day 16 — Jason, extended Day 18 — Lebert |
+| `useQuickstartGuide.ts` | Guide behavior: opt-in, hint progression, end-guide, exposure→seen-flag, scene detection, save completion, Help restart | Day 16 — Jason, extended Day 18 — Lebert + Mofazzal |
+| `QuickstartGuide.tsx` | Prompt + hint UI (incl. the toolbar highlights, the "How to start" link) | Day 16 — Jason, extended Day 18 — Lebert + Mofazzal |
+| `QuickstartHelpButton.tsx` | Help dialog "Getting started" button to reopen a dismissed guide | Day 18 — Mofazzal |
 | `behavior.ts` | Pure logic: what counts as a user-authored mark/label, hint progression, per-hint completion checks | Day 16 — Jason, extended Day 18 — Lebert |
 | `types.ts` | Shared types: hint IDs, experiment group, event names | infra |
 | `state.ts` | Shared guide state (Jotai atoms) | infra |
@@ -24,7 +25,9 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 
   `save` is architecturally different and deliberately has no `HINT_COMPLETION` entry: clicking Save, Cmd+S, or an Excalidraw+ export don't necessarily change any scene element, so `notifySceneChange` can't see them. It completes via `notifyExplicitSave()` (exported from `useQuickstartGuide.ts`, not returned from the hook) called directly from each of those three gestures' existing `markExplicitlySaved()` call sites (`AppMainMenu.tsx`'s click-capture, `App.tsx`'s Cmd+S/Cmd+Shift+E shortcut handler, and the Excalidraw+ export success callback) -- reusing `unsavedWork.ts`'s save-state primitives rather than reinventing save detection. Since those call sites live outside `ExcalidrawWrapper`'s component tree, `notifyExplicitSave` reads/writes the guide atoms imperatively via `appJotaiStore` instead of through the hook's `useAtom` setters -- the same pattern `unsavedWork.ts` itself already uses for cross-component state.
 
-- **Not built yet:** collaborator authorship beyond the mark-type exclusion (untested against a real collaborative session) -- Day 18 (Mofazzal). Analytics (Day 20) has been cut from scope; `types.ts`'s `QuickstartEventName`/`QuickstartEvent` types are unused scaffolding, left in place but not wired to anything.
+- **Help-menu restart (done, Mofazzal):** a "Getting started" button in the Help dialog header (same `HelpDialog__btn` style as Documentation / Blog / GitHub / YouTube, via a new `HelpDialogHeaderTunnel`) reopens the guide after dismiss, including for returning browsers that would otherwise fail eligibility (`guideForcedVisibleAtom`). Existing canvas content is baselined on restart so it doesn't instantly complete the first hint or read as "ignored the prompt."
+
+- **Not built yet:** collaborator authorship beyond the mark-type exclusion, untested against a real collaborative session -- Day 18 (Mofazzal). Analytics (Day 20) has been cut from scope; `types.ts`'s `QuickstartEventName`/`QuickstartEvent` types are unused scaffolding, left in place but not wired to anything.
 
 ## Conventions
 

@@ -23,3 +23,10 @@ export const completedHintsAtom = atom<HintId[]>([]);
 
 /** Has the user hit the explicit "end the guide" control? */
 export const guideEndedAtom = atom(false);
+
+/**
+ * Set when the user reopens the guide from Help after dismissing it
+ * (or after eligibility would otherwise hide it). Stays true for the
+ * session so they can restart more than once.
+ */
+export const guideForcedVisibleAtom = atom(false);
