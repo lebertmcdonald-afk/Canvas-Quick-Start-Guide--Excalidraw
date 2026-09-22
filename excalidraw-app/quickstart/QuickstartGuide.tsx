@@ -96,17 +96,17 @@ const useToolbarHintBottom = (enabled: boolean) => {
  * are the light-theme literals of the tokens in packages/excalidraw/css/theme.scss
  * and excalidraw-app/index.scss, since the vars themselves are scoped to
  * .excalidraw and don't resolve in this portal):
- *  - the primary action matches the top-right "Share" button
- *    (.collab-button): --color-primary background/border, hovering to
- *    --color-primary-darker (#5b57d1) on both.
- *  - the secondary action matches the "Excalidraw+" button (.plus-banner):
- *    --color-surface-low background, a --color-surface-lowest 1px ring
- *    instead of a border, --color-on-surface text, hovering to
- *    --color-primary with white text and pressing to --color-primary-darker.
- *  - plain buttons ("End guide") hover to --button-hover-bg
- *    (--color-surface-high, #f1f0ff) like the rest of the app's ghost
- *    buttons, and carry no border at all -- the UA default border must
- *    stay invisible.
+ *  - primary actions ("Help me get started", "End guide") match the
+ *    top-right "Share" button (.collab-button): --color-primary
+ *    background/border, hovering to --color-primary-darker (#5b57d1) on
+ *    both.
+ *  - the secondary action ("Keep drawing") matches the "Excalidraw+"
+ *    button (.plus-banner): --color-surface-low background, a
+ *    --color-surface-lowest 1px ring instead of a border,
+ *    --color-on-surface text, hovering to --color-primary with white
+ *    text and pressing to --color-primary-darker.
+ *  - the base class carries no border at all, so the UA default border
+ *    stays invisible on any future unstyled usage.
  */
 const BUTTON_STYLES = `
 .quickstart-btn {
@@ -117,11 +117,6 @@ const BUTTON_STYLES = `
   padding: 6px 10px;
   border-radius: 0.375rem;
   cursor: pointer;
-  /* also used on the "How to start" <a>: an anchor needs its link
-     defaults overridden to actually read as a button. Harmless on
-     <button>, which doesn't have either default to begin with. */
-  text-decoration: none;
-  display: inline-block;
 }
 .quickstart-btn:hover {
   background: #f1f0ff;
@@ -165,8 +160,6 @@ const BUTTON_STYLES = `
  * showing, so it leaves no trace once the guide moves on or ends -- and
  * box-shadow can't shift layout or intercept pointer events on the tools.
  */
-const HOW_TO_START_URL = "https://plus.excalidraw.com/how-to-start";
-
 const HINT_PULSE = `
 @keyframes quickstart-hint-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(105, 101, 219, 0); }
@@ -229,17 +222,9 @@ export const QuickstartGuide: React.FC<{
           >
             Keep drawing
           </button>
-          {/* Opens in a new tab so it doesn't pull the user off whatever's
-              already on their canvas. */}
-          <a
-            className="quickstart-btn quickstart-btn--secondary"
-            data-testid="quickstart-how-to-start"
-            href={HOW_TO_START_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            How to start with Excalidraw
-          </a>
+          {/* "How to start with Excalidraw" moved to the shortcuts-and-help
+              dialog (QuickstartHelpButton) so the prompt stays a two-choice
+              decision. */}
         </div>
       </>,
       document.body,
@@ -256,7 +241,7 @@ export const QuickstartGuide: React.FC<{
         <div data-testid={testid} style={positionedOverlayStyle}>
           <span>{copy}</span>
           <button
-            className="quickstart-btn"
+            className="quickstart-btn quickstart-btn--primary"
             data-testid="quickstart-end-guide"
             onClick={onEndGuide}
           >
