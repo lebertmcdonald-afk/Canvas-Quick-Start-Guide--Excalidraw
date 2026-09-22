@@ -21,7 +21,7 @@ const USER_MARK_ELEMENT_TYPES = new Set<string>([
 
 /**
  * Hints with real content implemented so far. Day 16 implemented the first;
- * Day 18 adds labeling and connecting. Each later day adds its hint here and
+ * Day 18 adds the rest of the chain. Each later day adds its hint here and
  * the chain starts advancing to it automatically once the previous hint
  * completes.
  */
@@ -87,10 +87,10 @@ export const hasUserLabel = (
 ): boolean => elements.some((element) => isUserLabel(element));
 
 /**
- * Shapes the connecting hint is teaching. Bound labels sit on these and
- * must resolve back to the container — Excalidraw will not bind an arrow
- * to a containerId text, so a drag that starts on the label often has
- * null startBinding even though the user clearly connected two steps.
+ * Shapes the connecting hint is teaching. A bound label sits on one of
+ * these, and Excalidraw will not bind an arrow to a `containerId` text, so
+ * a drag that starts on the label leaves `startBinding` null even though
+ * the user clearly connected two steps.
  */
 const CONNECTABLE_SHAPE_TYPES = new Set<string>([
   "rectangle",
@@ -98,6 +98,8 @@ const CONNECTABLE_SHAPE_TYPES = new Set<string>([
   "ellipse",
 ]);
 
+/** Scene-units slack around a shape, so an arrow that stops just short of
+ * the border still reads as touching it (binding itself is forgiving too). */
 const NEAR_SHAPE_PADDING = 16;
 
 type ScenePoint = { x: number; y: number };
@@ -117,6 +119,7 @@ const pointHitsElement = (
   );
 };
 
+/** An arrow's two endpoints in scene coordinates, or null if unreadable. */
 const getArrowEndpoints = (
   element: OrderedExcalidrawElement,
 ): { start: ScenePoint; end: ScenePoint } | null => {
@@ -143,6 +146,7 @@ const getArrowEndpoints = (
   };
 };
 
+/** A binding's shape id, resolving a bound label back to its container. */
 const resolveBoundShapeId = (
   binding: { elementId?: string } | null | undefined,
   elements: readonly OrderedExcalidrawElement[],
@@ -161,6 +165,7 @@ const resolveBoundShapeId = (
   return id;
 };
 
+/** The topmost shape an unbound endpoint is sitting on, or null. */
 const resolveShapeIdNearPoint = (
   point: ScenePoint,
   elements: readonly OrderedExcalidrawElement[],
@@ -192,11 +197,15 @@ const resolveShapeIdNearPoint = (
 };
 
 /**
- * Does this element read as the user connecting two shapes? Official
- * bindings at both ends to two different shapes count, and so does an
- * arrow whose endpoints sit on (or next to) two different shapes — the
- * real arrow tool often creates the element unbound, then binds the same
- * id, and a drag that starts on a label frequently never binds at all.
+ * Does this element read as the user connecting two shapes? An arrow bound
+ * at *both* ends to two *different* shapes counts, matching the PRD's
+ * "connect two steps with an arrow" -- a stray arrow on empty canvas or a
+ * loop back onto the same shape doesn't.
+ *
+ * Bindings alone aren't enough in practice: Excalidraw creates the arrow
+ * unbound and binds it afterwards, and a drag that begins on a shape's
+ * bound label never binds that end at all. So an arrow whose endpoints sit
+ * on two different shapes counts too, which is what the user actually did.
  */
 export const isUserConnection = (
   element: OrderedExcalidrawElement,
@@ -236,8 +245,12 @@ export const hasUserConnection = (
  * action." Only hints with real detection logic need an entry -- an
  * implemented hint with no entry here would mean it can activate but can
  * never complete, so IMPLEMENTED_HINTS and this map must stay in sync.
- * `save` is the exception: it completes on markExplicitlySaved(), not a
- * scene element, so it has no entry here.
+ *
+ * "save" deliberately has no entry: unlike the first three, it doesn't
+ * complete because of new *scene content* -- clicking Save, Cmd+S, or
+ * exporting to Excalidraw+ don't necessarily change any element. It
+ * completes via useQuickstartGuide's notifyExplicitSave instead, called
+ * directly from those save gestures rather than from notifySceneChange.
  */
 export const HINT_COMPLETION: Partial<
   Record<
@@ -248,6 +261,12 @@ export const HINT_COMPLETION: Partial<
         knownIds: ReadonlySet<string>,
         elements: readonly OrderedExcalidrawElement[],
       ) => OrderedExcalidrawElement | null;
+      /**
+       * Does this one element satisfy the hint right now? Used to track
+       * *which* elements already counted, so an element that exists before
+       * it qualifies -- an arrow drawn first and bound a moment later --
+       * still completes the hint when it finally does.
+       */
       isSatisfied: (
         element: OrderedExcalidrawElement,
         elements: readonly OrderedExcalidrawElement[],

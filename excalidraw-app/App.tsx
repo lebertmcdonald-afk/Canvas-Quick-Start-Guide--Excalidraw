@@ -146,7 +146,10 @@ import { useHandleAppTheme } from "./useHandleAppTheme";
 import { QuickstartHelpButton } from "./quickstart/QuickstartHelpButton";
 import { useIsNewCanvasUser } from "./quickstart/useIsNewCanvasUser";
 import { isRemoteSceneUpdate } from "./quickstart/remoteScene";
-import { useQuickstartGuide } from "./quickstart/useQuickstartGuide";
+import {
+  notifyExplicitSave,
+  useQuickstartGuide,
+} from "./quickstart/useQuickstartGuide";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import { useAppLangCode } from "./app-language/language-state";
 import DebugCanvas, {
@@ -395,8 +398,6 @@ const ExcalidrawWrapper = () => {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   const { isNewUser: isNewCanvasUser, markGuideSeen } = useIsNewCanvasUser();
   const quickstart = useQuickstartGuide(isNewCanvasUser, markGuideSeen);
-  const notifySceneChangeRef = useRef(quickstart.notifySceneChange);
-  notifySceneChangeRef.current = quickstart.notifySceneChange;
 
   const [langCode, setLangCode] = useAppLangCode();
 
@@ -772,6 +773,7 @@ const ExcalidrawWrapper = () => {
         // saveScene (CtrlOrCmd+S) and imageExport (CtrlOrCmd+Shift+E)
         if (key === "s" || (key === "e" && event.shiftKey)) {
           markExplicitlySaved();
+          notifyExplicitSave();
         }
       }
     };
@@ -790,7 +792,7 @@ const ExcalidrawWrapper = () => {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    notifySceneChangeRef.current(elements, {
+    quickstart.notifySceneChange(elements, {
       isRemote: isRemoteSceneUpdate(),
     });
     noteSceneChange(elements);
@@ -1054,6 +1056,7 @@ const ExcalidrawWrapper = () => {
                         onSuccess={() => {
                           // exported to the Excalidraw+ workspace: saved
                           markExplicitlySaved();
+                          notifyExplicitSave();
                           excalidrawAPI.updateScene({
                             appState: { openDialog: null },
                           });

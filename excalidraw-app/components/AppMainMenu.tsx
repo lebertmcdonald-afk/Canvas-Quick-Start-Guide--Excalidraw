@@ -13,6 +13,7 @@ import type { Theme } from "@excalidraw/element/types";
 
 import { LanguageList } from "../app-language/LanguageList";
 import { isExcalidrawPlusSignedUser } from "../app_constants";
+import { notifyExplicitSave } from "../quickstart/useQuickstartGuide";
 import { markExplicitlySaved } from "../unsavedWork";
 
 import { saveDebugState } from "./DebugCanvas";
@@ -40,6 +41,7 @@ export const AppMainMenu: React.FC<{
       onClickCapture={(event) => {
         if ((event.target as HTMLElement).closest(SAVE_MENU_ITEM_SELECTOR)) {
           markExplicitlySaved();
+          notifyExplicitSave();
         }
       }}
     >

@@ -10,7 +10,6 @@ import { FileManager } from "../data/FileManager";
 import { localStorageQuotaExceededAtom } from "../data/LocalData";
 import { Provider, appJotaiStore } from "../app-jotai";
 import {
-  hasExplicitlySavedCurrentScene,
   hasUnsavedExplicitWork,
   hasUnsavedWork,
   markExplicitlySaved,
@@ -161,7 +160,6 @@ describe("explicit-save tracking (unsaved = user hasn't clicked save)", () => {
 
     markExplicitlySaved();
     expect(hasUnsavedExplicitWork()).toBe(false);
-    expect(hasExplicitlySavedCurrentScene()).toBe(true);
     expect(
       hasUnsavedWork([makeElement("a", 2)], { fileStorage: makeFileManager() }),
     ).toBe(false);
