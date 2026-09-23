@@ -1,25 +1,41 @@
 /**
- * Marks the next scene write as coming from a collaborator, not the local
- * user. Collab wraps remote updateScene calls so the guide can baseline
- * those elements without treating them as hint completions (or as the
- * user's first content, which would dismiss the prompt).
+ * Which elements a collaborator wrote, so the guide can tell their work
+ * from the local user's: remote elements baseline instead of completing a
+ * hint or dismissing the opt-in prompt.
  *
- * Depth-counted so nested updateScene calls stay marked remote.
+ * Attribution is by element id rather than by "are we inside a remote
+ * update right now": Excalidraw calls onChange from componentDidUpdate,
+ * long after Collab's updateScene call has returned, so any flag set
+ * around that call is already back off by the time the guide hears about
+ * the change (this is exactly how the first version of this guard slipped
+ * through unit tests and then failed in a live session).
  */
 
-let remoteSceneUpdateDepth = 0;
+let pendingRemoteIds = new Set<string>();
 
-export const beginRemoteSceneUpdate = () => {
-  remoteSceneUpdateDepth += 1;
+export const markRemoteElementIds = (ids: Iterable<string>) => {
+  for (const id of ids) {
+    pendingRemoteIds.add(id);
+  }
 };
 
-export const endRemoteSceneUpdate = () => {
-  remoteSceneUpdateDepth = Math.max(0, remoteSceneUpdateDepth - 1);
+/**
+ * Hands over the ids written remotely since the last call, and clears
+ * them -- the guide keeps its own running set, so each id only needs to be
+ * reported once.
+ */
+export const takeRemoteElementIds = (): ReadonlySet<string> => {
+  if (pendingRemoteIds.size === 0) {
+    return EMPTY_REMOTE_IDS;
+  }
+  const taken = pendingRemoteIds;
+  pendingRemoteIds = new Set();
+  return taken;
 };
 
-export const isRemoteSceneUpdate = () => remoteSceneUpdateDepth > 0;
+const EMPTY_REMOTE_IDS: ReadonlySet<string> = new Set();
 
 /** Test-only. */
-export const resetRemoteSceneUpdate = () => {
-  remoteSceneUpdateDepth = 0;
+export const resetRemoteElementIds = () => {
+  pendingRemoteIds = new Set();
 };

@@ -40,14 +40,23 @@ const overlayStyle: React.CSSProperties = {
   zIndex: 10,
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
+  justifyContent: "center",
   gap: 8,
   padding: "6px 10px",
+  // on a phone-width viewport the card would otherwise run past both edges
+  // of the screen, taking its buttons with it
+  maxWidth: "calc(100vw - 24px)",
+  boxSizing: "border-box",
   background: "#ffffff",
   borderRadius: "0.5rem",
   boxShadow: ISLAND_SHADOW,
   fontFamily: UI_FONT,
   fontSize: 13,
 };
+
+/** The copy gives way before the buttons do when the card runs out of room. */
+const copyStyle: React.CSSProperties = { flex: "1 1 auto", minWidth: 0 };
 
 /**
  * The welcome screen's toolbar tooltip, which the card must not block while
@@ -117,6 +126,10 @@ const BUTTON_STYLES = `
   padding: 6px 10px;
   border-radius: 0.375rem;
   cursor: pointer;
+  /* the label must never wrap out of the fixed-height pill below, and the
+     card's text should give way before the buttons do */
+  white-space: nowrap;
+  flex: none;
 }
 .quickstart-btn:hover {
   background: #f1f0ff;
@@ -127,6 +140,8 @@ const BUTTON_STYLES = `
   color: #ffffff;
   padding: 8px 14px;
   height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
   box-sizing: border-box;
   border-radius: 0.5rem;
 }
@@ -140,6 +155,8 @@ const BUTTON_STYLES = `
   color: #1b1b1f;
   padding: 8px 14px;
   height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
   box-sizing: border-box;
   border-radius: 0.5rem;
 }
@@ -205,7 +222,7 @@ export const QuickstartGuide: React.FC<{
       <>
         <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
         <div data-testid="quickstart-prompt" style={positionedOverlayStyle}>
-          <span>
+          <span style={copyStyle}>
             Making your first diagram? Turn a process into a simple drawing.
           </span>
           <button
@@ -239,7 +256,7 @@ export const QuickstartGuide: React.FC<{
           <style data-testid={`${testid}-styles`}>{highlight}</style>
         )}
         <div data-testid={testid} style={positionedOverlayStyle}>
-          <span>{copy}</span>
+          <span style={copyStyle}>{copy}</span>
           <button
             className="quickstart-btn quickstart-btn--primary"
             data-testid="quickstart-end-guide"

@@ -87,10 +87,7 @@ import {
   saveUsernameToLocalStorage,
 } from "../data/localStorage";
 import { resetBrowserStateVersions } from "../data/tabSync";
-import {
-  beginRemoteSceneUpdate,
-  endRemoteSceneUpdate,
-} from "../quickstart/remoteScene";
+import { markRemoteElementIds } from "../quickstart/remoteScene";
 
 import { collabErrorIndicatorAtom } from "./CollabError";
 import Portal from "./Portal";
@@ -814,15 +811,27 @@ class Collab extends PureComponent<CollabProps, CollabState> {
   private handleRemoteSceneUpdate = (
     elements: ReconciledExcalidrawElement[],
   ) => {
-    beginRemoteSceneUpdate();
-    try {
-      this.excalidrawAPI.updateScene({
-        elements,
-        captureUpdate: CaptureUpdateAction.NEVER,
-      });
-    } finally {
-      endRemoteSceneUpdate();
-    }
+    // Element versions before the write, so the guide can be told exactly
+    // which elements this collaborator changed -- reconciliation leaves
+    // the local user's own work untouched, and it must stay attributed to
+    // them (see quickstart/remoteScene.ts).
+    const versionsBefore = new Map(
+      this.excalidrawAPI
+        .getSceneElementsIncludingDeleted()
+        .map((element) => [element.id, element.version]),
+    );
+
+    this.excalidrawAPI.updateScene({
+      elements,
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+
+    markRemoteElementIds(
+      this.excalidrawAPI
+        .getSceneElementsIncludingDeleted()
+        .filter((element) => versionsBefore.get(element.id) !== element.version)
+        .map((element) => element.id),
+    );
 
     this.loadImageFiles();
   };

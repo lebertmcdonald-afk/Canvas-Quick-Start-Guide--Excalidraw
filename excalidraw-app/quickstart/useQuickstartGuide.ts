@@ -6,6 +6,11 @@ import { appJotaiStore, useAtom } from "../app-jotai";
 
 import { HINT_COMPLETION, nextHint } from "./behavior";
 import {
+  clearGuideProgress,
+  readGuideProgress,
+  writeGuideProgress,
+} from "./progress";
+import {
   activeHintAtom,
   completedHintsAtom,
   guideEndedAtom,
@@ -16,8 +21,13 @@ import {
 import type { HintId } from "./types";
 
 export type SceneChangeMeta = {
-  /** True when this scene write came from a collaborator, not the local user. */
-  isRemote?: boolean;
+  /**
+   * Ids written by a collaborator since the last scene change, from
+   * remoteScene.ts. Reported once each -- the hook keeps its own running
+   * set, since a later change to unrelated state still shows those
+   * elements on the canvas.
+   */
+  remoteElementIds?: ReadonlySet<string>;
 };
 
 /**
@@ -94,6 +104,9 @@ export const useQuickstartGuide = (
   // the new hint -- but an arrow created unbound and bound a moment later
   // (same id, newly qualifying) still does.
   const satisfiedIdsRef = useRef<ReadonlySet<string>>(new Set());
+  // Everything a collaborator has written this session. Their work stays
+  // theirs on every later scene change, not just the one that delivered it.
+  const remoteIdsRef = useRef<Set<string>>(new Set());
   const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
   // Excalidraw can fire onChange more than once before React re-renders,
   // so scene detection reads the live values here rather than the closure.
@@ -125,6 +138,46 @@ export const useQuickstartGuide = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewUser]);
 
+  // A reload mid-guide resumes where the user left off. Their drawing is
+  // already on the canvas by then, so it baselines (as on a Help restart)
+  // rather than completing the hint they were in the middle of.
+  useEffect(() => {
+    const saved = readGuideProgress();
+    if (!saved) {
+      return;
+    }
+    const resumedHint = nextHint(saved.completedHints);
+    if (!resumedHint) {
+      clearGuideProgress();
+      return;
+    }
+    setForcedVisible(true);
+    setOptedIn(true);
+    setCompletedHints(saved.completedHints);
+    setActiveHint(resumedHint);
+    activeHintRef.current = resumedHint;
+    skipBaselineCompletionRef.current = true;
+    // mount only: restoring on any later render would fight the live state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror of the above: keep the stored progress in step with the live
+  // state, and leave nothing behind once the guide is over either way.
+  useEffect(() => {
+    if (ended) {
+      clearGuideProgress();
+      return;
+    }
+    if (!optedIn) {
+      return;
+    }
+    if (!nextHint(completedHints)) {
+      clearGuideProgress();
+      return;
+    }
+    writeGuideProgress({ completedHints });
+  }, [optedIn, ended, completedHints]);
+
   // Once opted in, the next implemented, uncompleted hint goes active
   // until finished. Adding a hint to IMPLEMENTED_HINTS advances the chain
   // automatically once the previous hint completes.
@@ -152,6 +205,8 @@ export const useQuickstartGuide = (
     skipBaselineCompletionRef.current = false;
     satisfiedIdsRef.current = new Set();
     lastElementsRef.current = [];
+    // remoteIdsRef deliberately survives: those elements are still the
+    // collaborator's if the user restarts the guide from Help.
   };
 
   /**
@@ -193,15 +248,21 @@ export const useQuickstartGuide = (
    *  - if the active hint is one the user just satisfied, it completes and
    *    disappears on its own, never repeating. What counts as satisfying it
    *    is per-hint (HINT_COMPLETION in behavior.ts).
-   *  - a collaborator's edits are baselined, never treated as the local
-   *    user doing the step (meta.isRemote, set by Collab).
+   *  - a collaborator's elements are baselined, never treated as the local
+   *    user doing the step (meta.remoteElementIds, from Collab).
    */
   const notifySceneChange = (
     elements: readonly OrderedExcalidrawElement[],
     meta?: SceneChangeMeta,
   ) => {
     lastElementsRef.current = elements;
-    const isRemote = meta?.isRemote === true;
+    if (meta?.remoteElementIds?.size) {
+      for (const id of meta.remoteElementIds) {
+        remoteIdsRef.current.add(id);
+      }
+    }
+    const isLocal = (element: OrderedExcalidrawElement) =>
+      !remoteIdsRef.current.has(element.id);
 
     if (!guideApplies) {
       knownElementIdsRef.current = null;
@@ -209,12 +270,11 @@ export const useQuickstartGuide = (
     }
 
     if (!optedIn) {
-      // A collaborator's edit must not dismiss the prompt: P1 is the
+      // A collaborator's work must not dismiss the prompt: P1 is the
       // *local* user starting to draw on their own.
-      if (elements.length > 0 && !isRemote) {
+      if (elements.some(isLocal)) {
         endGuide();
-      }
-      if (isRemote) {
+      } else if (elements.length > 0) {
         knownElementIdsRef.current = new Set(
           elements.map((element) => element.id),
         );
@@ -228,21 +288,14 @@ export const useQuickstartGuide = (
       completion !== undefined &&
       currentHint !== null &&
       !completedHints.includes(currentHint);
+    // The collaborator's elements count as baseline, so they can't
+    // complete the hint -- but they're still part of the scene the local
+    // user's own work is judged against (an arrow the user draws to the
+    // collaborator's shape is still the user connecting two shapes).
     const matchingIds = matchingIdsFor(currentHint, elements);
-
-    if (isRemote) {
-      // Baseline the collaborator's work -- including anything of theirs
-      // that happens to satisfy this hint -- so only a later local action
-      // can complete it.
-      knownElementIdsRef.current = new Set(
-        elements.map((element) => element.id),
-      );
-      satisfiedIdsRef.current = new Set([
-        ...satisfiedIdsRef.current,
-        ...matchingIds,
-      ]);
-      return;
-    }
+    const locallyMatching = [...matchingIds].filter(
+      (id) => !remoteIdsRef.current.has(id),
+    );
 
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
@@ -257,7 +310,7 @@ export const useQuickstartGuide = (
         skipBaselineCompletionRef.current = false;
         return;
       }
-      if (hintPending && completion.hasAny(elements)) {
+      if (hintPending && completion.hasAny(elements.filter(isLocal))) {
         completeHint(currentHint as HintId);
       }
       return;
@@ -267,7 +320,7 @@ export const useQuickstartGuide = (
     // arrow unbound and binds it afterwards, so waiting for a new id
     // alone leaves the connecting hint stuck on screen forever.
     const previouslySatisfied = satisfiedIdsRef.current;
-    const newlySatisfied = [...matchingIds].some(
+    const newlySatisfied = locallyMatching.some(
       (id) => !previouslySatisfied.has(id),
     );
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
