@@ -38,19 +38,21 @@ const overlayStyle: React.CSSProperties = {
   top: DEFAULT_CARD_TOP,
   left: "50%",
   transform: "translateX(-50%)",
-  // Without this, a narrow viewport (a phone, or just a narrow browser
-  // window) squeezed the card until its button's own label wrapped and
-  // overflowed past the card's rounded border -- found by actually
-  // screenshotting at a phone width, not by reading the CSS. flexWrap lets
-  // the button drop to its own line instead of being crushed alongside the
-  // text; maxWidth stops the card from touching the viewport edges.
-  maxWidth: "calc(100vw - 32px)",
+  // On a narrow viewport (a phone, or just a narrow browser window) the
+  // single flex row pushed the card -- and its buttons -- past the edges
+  // of the screen. flexWrap lets a button drop to its own line instead of
+  // being crushed alongside the text; maxWidth with border-box (so the
+  // padding counts against it) keeps a real margin from the viewport
+  // edges; centered content keeps the wrapped layout balanced.
+  maxWidth: "calc(100vw - 24px)",
   zIndex: 10,
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
+  justifyContent: "center",
   gap: 8,
   padding: "6px 10px",
+  boxSizing: "border-box",
   background: "#ffffff",
   // Explicit, not inherited: this portal renders straight to document.body,
   // outside .excalidraw's scope, so in the app's own dark theme it was
@@ -64,6 +66,9 @@ const overlayStyle: React.CSSProperties = {
   fontFamily: UI_FONT,
   fontSize: 13,
 };
+
+/** The copy gives way before the buttons do when the card runs out of room. */
+const copyStyle: React.CSSProperties = { flex: "1 1 auto", minWidth: 0 };
 
 /**
  * Excalidraw's own hint text in that same band below the toolbar -- two
@@ -148,9 +153,9 @@ const BUTTON_STYLES = `
   /* the label must never wrap onto a second line inside the button itself
      -- flexWrap on the card wraps the *button as a whole* onto its own
      line on a narrow viewport instead, which is what actually needs to
-     give. flex-shrink: 0 stops the row from crushing it in the meantime. */
+     give. flex: none stops the row from crushing it in the meantime. */
   white-space: nowrap;
-  flex-shrink: 0;
+  flex: none;
 }
 .quickstart-btn:hover {
   background: #f1f0ff;
@@ -161,6 +166,8 @@ const BUTTON_STYLES = `
   color: #ffffff;
   padding: 8px 14px;
   height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
   box-sizing: border-box;
   border-radius: 0.5rem;
 }
@@ -174,6 +181,8 @@ const BUTTON_STYLES = `
   color: #1b1b1f;
   padding: 8px 14px;
   height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
   box-sizing: border-box;
   border-radius: 0.5rem;
 }
@@ -239,7 +248,7 @@ export const QuickstartGuide: React.FC<{
       <>
         <style data-testid="quickstart-button-styles">{BUTTON_STYLES}</style>
         <div data-testid="quickstart-prompt" style={positionedOverlayStyle}>
-          <span>
+          <span style={copyStyle}>
             Making your first diagram? Turn a process into a simple drawing.
           </span>
           <button
@@ -273,7 +282,7 @@ export const QuickstartGuide: React.FC<{
           <style data-testid={`${testid}-styles`}>{highlight}</style>
         )}
         <div data-testid={testid} style={positionedOverlayStyle}>
-          <span>{copy}</span>
+          <span style={copyStyle}>{copy}</span>
           <button
             className="quickstart-btn quickstart-btn--primary"
             data-testid="quickstart-end-guide"

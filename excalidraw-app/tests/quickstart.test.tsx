@@ -75,12 +75,20 @@ const makeArrow = (
     isDeleted,
   } as unknown as OrderedExcalidrawElement);
 
-const resetGuideState = () => {
+/** In-memory guide state only -- what a page reload clears. */
+const resetGuideAtoms = () => {
   appJotaiStore.set(guideOptedInAtom, false);
   appJotaiStore.set(activeHintAtom, null);
   appJotaiStore.set(completedHintsAtom, []);
   appJotaiStore.set(guideEndedAtom, false);
   appJotaiStore.set(guideForcedVisibleAtom, false);
+};
+
+const resetGuideState = () => {
+  // saved progress would otherwise leak from one test's localStorage into
+  // the next one's "fresh" mount
+  localStorage.removeItem("excalidraw-quickstart-progress");
+  resetGuideAtoms();
 };
 
 const renderGuideHook = (isNewUser: boolean | null) => {
@@ -1070,6 +1078,122 @@ describe("quickstart actions in the shortcuts-and-help dialog", () => {
     expect(restart.textContent).toContain("Show guide");
     fireEvent.click(restart);
     expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resuming the guide after a reload", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    localStorage.clear();
+  });
+
+  /** A reload: guide atoms start empty again, localStorage doesn't. */
+  const remount = (isNewUser: boolean) => {
+    cleanup();
+    resetGuideAtoms();
+    return renderGuideHook(isNewUser);
+  };
+
+  const drawFirstShape = (result: {
+    current: ReturnType<typeof useQuickstartGuide>;
+  }) => {
+    act(() => result.current.optIn());
+    act(() => result.current.notifySceneChange([]));
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+    expect(result.current.activeHint).toBe("labeling");
+  };
+
+  it("picks the chain back up where the user left off", () => {
+    const { result } = renderGuideHook(true);
+    drawFirstShape(result);
+
+    // the reloaded browser is no longer "new" -- it has a drawing now
+    const { result: resumed } = remount(false);
+    expect(resumed.current.isVisible).toBe(true);
+    expect(resumed.current.optedIn).toBe(true);
+    expect(resumed.current.activeHint).toBe("labeling");
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+  });
+
+  it("does not complete the resumed hint from the drawing that's already there", () => {
+    const { result } = renderGuideHook(true);
+    drawFirstShape(result);
+
+    const { result: resumed } = remount(false);
+    const existing = [
+      makeElement("el1", "rectangle"),
+      makeLabel("lbl1", "el1"),
+    ];
+    // that label was on the canvas before the reload: it's the baseline,
+    // not the user doing the labeling step now
+    act(() => resumed.current.notifySceneChange(existing));
+    expect(resumed.current.activeHint).toBe("labeling");
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+
+    act(() =>
+      resumed.current.notifySceneChange([
+        ...existing,
+        makeElement("el2", "ellipse"),
+        makeLabel("lbl2", "el2"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+    expect(resumed.current.activeHint).toBe("connecting");
+  });
+
+  it("leaves nothing to resume once the user ends the guide", () => {
+    const { result } = renderGuideHook(true);
+    drawFirstShape(result);
+    act(() => result.current.endGuide());
+
+    const { result: resumed } = remount(false);
+    expect(resumed.current.isVisible).toBe(false);
+    expect(resumed.current.activeHint).toBeNull();
+  });
+
+  it("leaves nothing to resume once the chain is finished", () => {
+    const { result } = renderGuideHook(true);
+    drawFirstShape(result);
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeLabel("lbl1", "el1"),
+      ]),
+    );
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("el1", "rectangle"),
+        makeLabel("lbl1", "el1"),
+        makeElement("el2", "ellipse"),
+        makeArrow("arrow1", "el1", "el2"),
+      ]),
+    );
+    expect(result.current.activeHint).toBe("save");
+    act(() => notifyExplicitSave());
+
+    const { result: resumed } = remount(false);
+    expect(resumed.current.isVisible).toBe(false);
+    expect(resumed.current.activeHint).toBeNull();
+  });
+
+  it("stores nothing for a user who never took part (PRD P0)", () => {
+    const { result } = renderGuideHook(false);
+    act(() => result.current.notifySceneChange([]));
+    act(() =>
+      result.current.notifySceneChange([makeElement("el1", "rectangle")]),
+    );
+    expect(localStorage.getItem("excalidraw-quickstart-progress")).toBeNull();
+
+    // nor for a new user who declines the prompt
+    const { result: declining } = remount(true);
+    act(() => declining.current.endGuide());
+    expect(localStorage.getItem("excalidraw-quickstart-progress")).toBeNull();
   });
 });
 
