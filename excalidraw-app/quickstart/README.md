@@ -42,7 +42,13 @@ Feature module for the Canvas Quick-Start Guide (PRD v2 — see [`/docs/Canvas Q
 
 - **Narrow widths (done, Mofazzal):** the prompt is a single flex row, which at phone widths pushed its buttons off both edges of the screen. It now wraps, caps at `calc(100vw - 24px)`, and lets the copy shrink before the buttons do (`white-space: nowrap; flex: none`), so the actions stay reachable at 375px.
 
-- **Not built yet:** analytics (Day 20) has been cut from scope; `types.ts`'s `QuickstartEventName`/`QuickstartEvent` types are unused scaffolding, left in place but not wired to anything.
+- **Visual polish (done, Lebert):** three real defects, all found by actually screenshotting the card in states nobody had checked, not by reading the CSS.
+
+  1. The card collided with Excalidraw's own hint text in that same band below the toolbar -- `useHintCardTop` (was `useToolbarHintBottom`) previously only measured the welcome screen's toolbar tooltip, missing `HintViewer`, Excalidraw's regular contextual hint (keyboard shortcuts, "hold Cmd to edit points", etc.) that appears throughout normal use once something's selected or mid-draw; a sliver of it was peeking out from behind our card in three of four hint states. Now measures both and sits 8px below whichever is on screen.
+  2. The card's text had no explicit color, so in the app's dark theme it inherited `document.body`'s light text color (the portal renders straight to `document.body`, outside `.excalidraw`'s scope) -- every hint was completely invisible, not just mismatched, for any new user with dark mode on. Fixed with an explicit `color` on the card.
+  3. On a narrow viewport the card had no `max-width` or wrapping, so it got squeezed until a button's own label wrapped onto a second line and spilled outside the card's rounded border. This is the same overflow Mofazzal's "Narrow widths" entry above fixes from the prompt-reachability side; merging this branch unified both into one treatment (wrap + `calc(100vw - 24px)` with `border-box`, centered, the copy yielding before the buttons, labels never wrapping internally) -- verified down to 320px (iPhone SE width), not just one phone size.
+
+  Checked and already fine, no changes needed: the Help dialog's "Show guide" / "Getting started" buttons (they reuse Excalidraw's own `HelpDialog__btn` styling, not ours) and keyboard focus visibility on the card's buttons (the browser's own default focus ring survives -- nothing suppresses it).- **Not built yet:** analytics (Day 20) has been cut from scope; `types.ts`'s `QuickstartEventName`/`QuickstartEvent` types are unused scaffolding, left in place but not wired to anything.
 
 ## Conventions
 
