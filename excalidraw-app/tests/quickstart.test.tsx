@@ -1261,3 +1261,67 @@ describe("save hint completion from the main menu", () => {
     expect(appJotaiStore.get(activeHintAtom)).toBeNull();
   });
 });
+
+describe("save hint: menu button, then save button, highlight", () => {
+  beforeEach(() => {
+    resetGuideState();
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  const saveHintStyles = () =>
+    document.querySelector('[data-testid="quickstart-hint-save-styles"]')
+      ?.textContent ?? "";
+
+  it("pulses the menu button first, switching to the save item once the menu opens", async () => {
+    render(
+      <Provider store={appJotaiStore}>
+        <Excalidraw>
+          <AppMainMenu
+            onCollabDialogOpen={() => {}}
+            isCollaborating={false}
+            isCollabEnabled={false}
+            theme="light"
+            refresh={() => {}}
+          />
+          <QuickstartGuide
+            isVisible={true}
+            optedIn={true}
+            activeHint="save"
+            onOptIn={() => {}}
+            onEndGuide={() => {}}
+          />
+        </Excalidraw>
+      </Provider>,
+    );
+
+    // stage one: menu closed -- the menu button (top-left hamburger) pulses
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-testid="quickstart-hint-save"]'),
+      ).not.toBe(null);
+    });
+    expect(saveHintStyles()).toContain("main-menu-trigger");
+    expect(saveHintStyles()).not.toContain("save-button");
+    expect(document.body).toHaveTextContent("Use the menu to save a copy.");
+
+    // open the real menu (radix mounts the panel)
+    const trigger = await waitFor(() => {
+      const el = document.querySelector<HTMLButtonElement>(
+        '[data-testid="main-menu-trigger"]',
+      );
+      if (!el) {
+        throw new Error("main menu trigger not mounted yet");
+      }
+      return el;
+    });
+    fireEvent.click(trigger);
+
+    // stage two: the Save item inside the menu pulses instead
+    await waitFor(() => {
+      expect(saveHintStyles()).toContain('data-testid="save-button"');
+    });
+    expect(saveHintStyles()).not.toContain("main-menu-trigger");
+    expect(document.body).toHaveTextContent("Now click Save");
+  });
+});

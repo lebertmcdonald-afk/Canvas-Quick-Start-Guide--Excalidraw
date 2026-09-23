@@ -124,6 +124,36 @@ const useHintCardTop = (enabled: boolean) => {
 };
 
 /**
+ * Is Excalidraw's main menu open? The menu panel (.main-menu, radix
+ * DropdownMenu content) only exists in the DOM while open, so presence is
+ * the whole check. Watched with a MutationObserver because the save hint's
+ * highlight follows the user's progress: menu button first, and the save
+ * item inside the menu once it's open.
+ */
+const useMenuOpen = (enabled: boolean) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const check = () => {
+      setIsOpen(Boolean(document.querySelector(".excalidraw .main-menu")));
+    };
+
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [enabled]);
+
+  return isOpen;
+};
+
+/**
  * Buttons live in a rendered stylesheet rather than inline styles because
  * they need :hover/:active states, matching the app's own buttons (values
  * are the light-theme literals of the tokens in packages/excalidraw/css/theme.scss
@@ -226,6 +256,22 @@ ${HINT_PULSE}
 }
 `;
 
+/** Save hint, stage one: the menu button (top-left hamburger). */
+const MENU_BUTTON_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw button[data-testid="main-menu-trigger"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
+/** Save hint, stage two: the Save item inside the now-open menu. */
+const SAVE_BUTTON_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw [data-testid="save-button"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
 export const QuickstartGuide: React.FC<{
   isVisible: boolean;
   optedIn: boolean;
@@ -234,6 +280,7 @@ export const QuickstartGuide: React.FC<{
   onEndGuide: () => void;
 }> = ({ isVisible, optedIn, activeHint, onOptIn, onEndGuide }) => {
   const hintCardTop = useHintCardTop(isVisible);
+  const menuOpen = useMenuOpen(isVisible && activeHint === "save");
   const positionedOverlayStyle: React.CSSProperties = {
     ...overlayStyle,
     top: hintCardTop,
@@ -319,9 +366,15 @@ export const QuickstartGuide: React.FC<{
   }
 
   if (activeHint === "save") {
+    // The last hint walks the actual save path: highlight the menu button
+    // first, then -- once the user opens the menu -- the Save item inside
+    // it. Copy follows the same two stages.
     return hintCard(
       "quickstart-hint-save",
-      "Your drawing auto-saves in this browser. Use the menu to save a copy.",
+      menuOpen
+        ? "Now click Save to keep a copy of your drawing."
+        : "Your drawing auto-saves in this browser. Use the menu to save a copy.",
+      menuOpen ? SAVE_BUTTON_HIGHLIGHT_STYLES : MENU_BUTTON_HIGHLIGHT_STYLES,
     );
   }
 
