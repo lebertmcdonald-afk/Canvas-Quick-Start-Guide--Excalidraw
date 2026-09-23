@@ -6,6 +6,11 @@ import { appJotaiStore, useAtom } from "../app-jotai";
 
 import { HINT_COMPLETION, nextHint } from "./behavior";
 import {
+  clearGuideProgress,
+  readGuideProgress,
+  writeGuideProgress,
+} from "./progress";
+import {
   activeHintAtom,
   completedHintsAtom,
   guideEndedAtom,
@@ -132,6 +137,46 @@ export const useQuickstartGuide = (
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewUser]);
+
+  // A reload mid-guide resumes where the user left off. Their drawing is
+  // already on the canvas by then, so it baselines (as on a Help restart)
+  // rather than completing the hint they were in the middle of.
+  useEffect(() => {
+    const saved = readGuideProgress();
+    if (!saved) {
+      return;
+    }
+    const resumedHint = nextHint(saved.completedHints);
+    if (!resumedHint) {
+      clearGuideProgress();
+      return;
+    }
+    setForcedVisible(true);
+    setOptedIn(true);
+    setCompletedHints(saved.completedHints);
+    setActiveHint(resumedHint);
+    activeHintRef.current = resumedHint;
+    skipBaselineCompletionRef.current = true;
+    // mount only: restoring on any later render would fight the live state
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror of the above: keep the stored progress in step with the live
+  // state, and leave nothing behind once the guide is over either way.
+  useEffect(() => {
+    if (ended) {
+      clearGuideProgress();
+      return;
+    }
+    if (!optedIn) {
+      return;
+    }
+    if (!nextHint(completedHints)) {
+      clearGuideProgress();
+      return;
+    }
+    writeGuideProgress({ completedHints });
+  }, [optedIn, ended, completedHints]);
 
   // Once opted in, the next implemented, uncompleted hint goes active
   // until finished. Adding a hint to IMPLEMENTED_HINTS advances the chain

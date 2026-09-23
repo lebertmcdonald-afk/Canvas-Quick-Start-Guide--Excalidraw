@@ -50,6 +50,9 @@ export const STORAGE_KEYS = {
 
   // Day 15: has this browser already seen the new-user quickstart guide?
   LOCAL_STORAGE_QUICKSTART_SEEN: "excalidraw-quickstart-seen",
+  // How far into the guide the user got, so a reload resumes instead of
+  // dropping them out of it. Only written once they've opted in.
+  LOCAL_STORAGE_QUICKSTART_PROGRESS: "excalidraw-quickstart-progress",
 
   // do not use apart from migrations
   __LEGACY_LOCAL_STORAGE_LIBRARY: "excalidraw-library",
