@@ -25,16 +25,17 @@ const UI_FONT =
 const ISLAND_SHADOW =
   "0px 0px 1px 0px rgba(0, 0, 0, 0.17), 0px 0px 3px 0px rgba(0, 0, 0, 0.08), 0px 7px 14px 0px rgba(0, 0, 0, 0.05)";
 
+const DEFAULT_CARD_TOP = 76;
+
 const overlayStyle: React.CSSProperties = {
   position: "fixed",
   // Default spot: below the toolbar, not on top of it -- top: 8 used to
   // sit right over the toolbar icons, which is especially bad for the
   // shape-tool hint: it was covering the exact tool it was telling you to
-  // click. While the welcome screen's toolbar tooltip ("Pick a tool &
-  // Start drawing!") is on screen, the card is shifted further down, below
-  // that tooltip, so it never blocks those first-use instructions (see
-  // useToolbarHintBottom).
-  top: 76,
+  // click. The card shifts further down, below whichever of Excalidraw's
+  // own hint elements is on screen, so it never blocks or gets blocked by
+  // them (see useHintCardTop).
+  top: DEFAULT_CARD_TOP,
   left: "50%",
   transform: "translateX(-50%)",
   zIndex: 10,
@@ -43,6 +44,13 @@ const overlayStyle: React.CSSProperties = {
   gap: 8,
   padding: "6px 10px",
   background: "#ffffff",
+  // Explicit, not inherited: this portal renders straight to document.body,
+  // outside .excalidraw's scope, so in the app's own dark theme it was
+  // inheriting body's light text color onto this always-white card --
+  // rendering every hint invisible, not just mismatched (found by actually
+  // switching the app to dark mode and screenshotting, not by inspecting
+  // the CSS alone).
+  color: "#1b1b1f",
   borderRadius: "0.5rem",
   boxShadow: ISLAND_SHADOW,
   fontFamily: UI_FONT,
@@ -50,21 +58,31 @@ const overlayStyle: React.CSSProperties = {
 };
 
 /**
- * The welcome screen's toolbar tooltip, which the card must not block while
- * it's visible (it only renders while the welcome screen does -- empty
- * canvas, tall enough viewport -- and disappears once the user draws).
+ * Excalidraw's own hint text in that same band below the toolbar -- two
+ * different elements, never both on screen at once:
+ *  - the welcome screen's toolbar tooltip ("Pick a tool & Start
+ *    drawing!"), which only renders on an empty canvas and disappears
+ *    once the user draws;
+ *  - HintViewer, Excalidraw's regular contextual hint ("Hold Cmd and
+ *    double-click to edit points", keyboard shortcuts, etc.), which
+ *    appears throughout normal use once there's something selected or
+ *    mid-draw -- found by screenshotting every hint card and noticing a
+ *    sliver of it peeking out from behind ours in three of four.
  */
-const TOOLBAR_HINT_SELECTOR = ".excalidraw .welcome-screen-decor-hint--toolbar";
+const NATIVE_HINT_SELECTORS = [
+  ".excalidraw .welcome-screen-decor-hint--toolbar",
+  ".excalidraw .HintViewer",
+];
 
 /**
- * Bottom edge (viewport px) of the welcome screen's toolbar tooltip, or
- * null when it isn't on screen. Re-measured on DOM changes and resize
- * because the tooltip mounts after the initial load and unmounts when the
- * user starts drawing; a zero-height rect means it's hidden by the
- * welcome screen's media queries, which reads the same as absent.
+ * Where the card's top should sit: DEFAULT_CARD_TOP normally, or 8px below
+ * whichever native Excalidraw hint is currently on screen, so the two
+ * never overlap. Re-measured on DOM changes and resize, since both native
+ * hints mount/unmount as the user interacts; a zero-height rect means one
+ * is hidden by a media query, which reads the same as absent.
  */
-const useToolbarHintBottom = (enabled: boolean) => {
-  const [bottom, setBottom] = useState<number | null>(null);
+const useHintCardTop = (enabled: boolean) => {
+  const [top, setTop] = useState(DEFAULT_CARD_TOP);
 
   useEffect(() => {
     if (!enabled) {
@@ -72,9 +90,11 @@ const useToolbarHintBottom = (enabled: boolean) => {
     }
 
     const measure = () => {
-      const hint = document.querySelector(TOOLBAR_HINT_SELECTOR);
-      const rect = hint?.getBoundingClientRect();
-      setBottom(rect && rect.height > 0 ? Math.ceil(rect.bottom) : null);
+      const maxBottom = NATIVE_HINT_SELECTORS.reduce((max, selector) => {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        return rect && rect.height > 0 ? Math.max(max, rect.bottom) : max;
+      }, 0);
+      setTop(maxBottom > 0 ? Math.ceil(maxBottom) + 8 : DEFAULT_CARD_TOP);
     };
 
     measure();
@@ -87,7 +107,7 @@ const useToolbarHintBottom = (enabled: boolean) => {
     };
   }, [enabled]);
 
-  return bottom;
+  return top;
 };
 
 /**
@@ -190,10 +210,10 @@ export const QuickstartGuide: React.FC<{
   onOptIn: () => void;
   onEndGuide: () => void;
 }> = ({ isVisible, optedIn, activeHint, onOptIn, onEndGuide }) => {
-  const toolbarHintBottom = useToolbarHintBottom(isVisible);
+  const hintCardTop = useHintCardTop(isVisible);
   const positionedOverlayStyle: React.CSSProperties = {
     ...overlayStyle,
-    top: toolbarHintBottom !== null ? toolbarHintBottom + 8 : overlayStyle.top,
+    top: hintCardTop,
   };
 
   if (!isVisible) {
