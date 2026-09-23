@@ -38,8 +38,16 @@ const overlayStyle: React.CSSProperties = {
   top: DEFAULT_CARD_TOP,
   left: "50%",
   transform: "translateX(-50%)",
+  // Without this, a narrow viewport (a phone, or just a narrow browser
+  // window) squeezed the card until its button's own label wrapped and
+  // overflowed past the card's rounded border -- found by actually
+  // screenshotting at a phone width, not by reading the CSS. flexWrap lets
+  // the button drop to its own line instead of being crushed alongside the
+  // text; maxWidth stops the card from touching the viewport edges.
+  maxWidth: "calc(100vw - 32px)",
   zIndex: 10,
   display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
   gap: 8,
   padding: "6px 10px",
@@ -137,6 +145,12 @@ const BUTTON_STYLES = `
   padding: 6px 10px;
   border-radius: 0.375rem;
   cursor: pointer;
+  /* the label must never wrap onto a second line inside the button itself
+     -- flexWrap on the card wraps the *button as a whole* onto its own
+     line on a narrow viewport instead, which is what actually needs to
+     give. flex-shrink: 0 stops the row from crushing it in the meantime. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .quickstart-btn:hover {
   background: #f1f0ff;
