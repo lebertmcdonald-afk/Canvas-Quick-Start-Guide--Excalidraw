@@ -22,6 +22,7 @@ import {
 } from "../quickstart/behavior";
 import { QuickstartHelpButton } from "../quickstart/QuickstartHelpButton";
 import { QuickstartGuide } from "../quickstart/QuickstartGuide";
+import { SavePathNudge } from "../components/SavePathNudge";
 import {
   activeHintAtom,
   completedHintsAtom,
@@ -1345,5 +1346,67 @@ describe("save hint: menu button, then save button, highlight", () => {
       expect(saveHintStyles()).toContain('data-testid="image-export-button"');
       expect(saveHintStyles()).not.toContain("json-export-button");
     });
+  });
+});
+
+describe("post-stay save nudge (SavePathNudge)", () => {
+  beforeEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
+
+  it("pulses every save item while the menu is open, one-shot on close", async () => {
+    const onDone = vi.fn();
+    render(<SavePathNudge active={true} onDone={onDone} />);
+
+    // no menu open yet: nothing rendered, nothing dismissed
+    expect(
+      document.querySelector('[data-testid="save-path-nudge-styles"]'),
+    ).toBe(null);
+
+    const excalidrawRoot = document.createElement("div");
+    excalidrawRoot.className = "excalidraw";
+    const menu = document.createElement("div");
+    menu.className = "main-menu";
+    excalidrawRoot.append(menu);
+    document.body.append(excalidrawRoot);
+
+    const styles = await waitFor(() => {
+      const el = document.querySelector(
+        '[data-testid="save-path-nudge-styles"]',
+      );
+      if (!el) {
+        throw new Error("nudge styles not mounted yet");
+      }
+      return el;
+    });
+    const css = styles.textContent ?? "";
+    expect(css).toContain('data-testid="save-button"');
+    expect(css).toContain('data-testid="json-export-button"');
+    expect(css).toContain('data-testid="image-export-button"');
+
+    // closing the menu ends the nudge -- it doesn't re-open at the user
+    menu.remove();
+    await waitFor(() => {
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(
+        document.querySelector('[data-testid="save-path-nudge-styles"]'),
+      ).toBe(null);
+    });
+  });
+
+  it("renders nothing while inactive, even with the menu open", async () => {
+    const excalidrawRoot = document.createElement("div");
+    excalidrawRoot.className = "excalidraw";
+    const menu = document.createElement("div");
+    menu.className = "main-menu";
+    excalidrawRoot.append(menu);
+    document.body.append(excalidrawRoot);
+
+    render(<SavePathNudge active={false} onDone={vi.fn()} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      document.querySelector('[data-testid="save-path-nudge-styles"]'),
+    ).toBe(null);
   });
 });
