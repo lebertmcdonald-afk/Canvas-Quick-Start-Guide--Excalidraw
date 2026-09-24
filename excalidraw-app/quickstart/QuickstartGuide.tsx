@@ -274,24 +274,40 @@ ${HINT_PULSE}
 }
 `;
 
-/** Save hint, stage two: "Save to current file", when a file is attached. */
-const SAVE_BUTTON_HIGHLIGHT_STYLES = `
-${HINT_PULSE}
-.excalidraw [data-testid="save-button"] {
+/**
+ * "Export image..." is highlighted in stage two regardless of the user's
+ * file situation: a PNG is a valid save-a-copy outcome for everyone.
+ */
+const IMAGE_EXPORT_HIGHLIGHT_RULE = `
+.excalidraw [data-testid="image-export-button"] {
   animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
 }
 `;
 
 /**
- * Save hint, stage two fallback: the Export item. "Save to current file"
- * only renders with a file handle attached, which brand-new users -- this
- * guide's audience -- never have, so Export is their save-a-copy path.
+ * Save hint, stage two with a file attached: "Save to current file" plus
+ * "Export image...".
+ */
+const SAVE_BUTTON_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw [data-testid="save-button"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+${IMAGE_EXPORT_HIGHLIGHT_RULE}
+`;
+
+/**
+ * Save hint, stage two fallback: the Export item plus "Export image...".
+ * "Save to current file" only renders with a file handle attached, which
+ * brand-new users -- this guide's audience -- never have, so the Export
+ * item is their file-save path.
  */
 const EXPORT_BUTTON_HIGHLIGHT_STYLES = `
 ${HINT_PULSE}
 .excalidraw [data-testid="json-export-button"] {
   animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
 }
+${IMAGE_EXPORT_HIGHLIGHT_RULE}
 `;
 
 export const QuickstartGuide: React.FC<{
@@ -389,20 +405,21 @@ export const QuickstartGuide: React.FC<{
 
   if (activeHint === "save") {
     // The last hint walks the actual save path: highlight the menu button
-    // first, then -- once the user opens the menu -- the save item inside
-    // it. Copy follows the same two stages, naming whichever item is
-    // actually highlighted for this user.
+    // first, then -- once the user opens the menu -- the save items inside
+    // it: "Export image..." always, plus "Save to current file" when a
+    // file is attached (the Export item otherwise). One copy covers both,
+    // since more than one item is highlighted.
     if (menuSaveTarget === "file") {
       return hintCard(
         "quickstart-hint-save",
-        "Now click Save to keep a copy of your drawing.",
+        "Now use a highlighted option to save a copy of your drawing.",
         SAVE_BUTTON_HIGHLIGHT_STYLES,
       );
     }
     if (menuSaveTarget === "export") {
       return hintCard(
         "quickstart-hint-save",
-        "Now click Export to save a copy of your drawing.",
+        "Now use a highlighted option to save a copy of your drawing.",
         EXPORT_BUTTON_HIGHLIGHT_STYLES,
       );
     }

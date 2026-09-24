@@ -1319,25 +1319,31 @@ describe("save hint: menu button, then save button, highlight", () => {
 
     // stage two: with no file attached to the scene (the guide's audience),
     // "Save to current file" doesn't render -- the Export item is the
-    // highlighted save path instead
+    // file-save path, and "Export image..." is highlighted alongside it
     await waitFor(() => {
       expect(saveHintStyles()).toContain('data-testid="json-export-button"');
+      expect(saveHintStyles()).toContain('data-testid="image-export-button"');
     });
     expect(saveHintStyles()).not.toContain("main-menu-trigger");
     expect(
       document.querySelector('[data-testid="json-export-button"]'),
     ).not.toBe(null);
-    expect(document.body).toHaveTextContent("Now click Export");
+    expect(
+      document.querySelector('[data-testid="image-export-button"]'),
+    ).not.toBe(null);
+    expect(document.body).toHaveTextContent(
+      "Now use a highlighted option to save a copy",
+    );
 
-    // ...and when a file IS attached, "Save to current file" is the target:
-    // inject one into the open menu and the highlight switches to it
+    // ...and when a file IS attached, "Save to current file" replaces the
+    // Export item as the file-save target; "Export image..." stays
     const saveItem = document.createElement("button");
     saveItem.setAttribute("data-testid", "save-button");
     document.querySelector(".excalidraw .main-menu")!.append(saveItem);
     await waitFor(() => {
       expect(saveHintStyles()).toContain('data-testid="save-button"');
+      expect(saveHintStyles()).toContain('data-testid="image-export-button"');
       expect(saveHintStyles()).not.toContain("json-export-button");
     });
-    expect(document.body).toHaveTextContent("Now click Save");
   });
 });
