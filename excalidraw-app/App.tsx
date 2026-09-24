@@ -7,7 +7,9 @@ import {
   useEditorInterface,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
+  exportToBlob,
 } from "@excalidraw/excalidraw";
+import { fileSave } from "@excalidraw/excalidraw/data/filesystem";
 import { trackEvent } from "@excalidraw/excalidraw/analytics";
 import { getDefaultAppState } from "@excalidraw/excalidraw/appState";
 import {
@@ -31,6 +33,7 @@ import {
   resolvablePromise,
   isRunningInIframe,
   isDevEnv,
+  MIME_TYPES,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +51,7 @@ import {
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
+import { getNonDeletedElements } from "@excalidraw/element";
 import {
   bumpElementVersions,
   restoreAppState,
@@ -577,6 +581,33 @@ const ExcalidrawWrapper = () => {
     [collabAPI, excalidrawAPI],
   );
 
+  /**
+   * The UnsavedWorkDialog's Save action: exports the current drawing as a
+   * PNG and counts it as the user's explicit save gesture (clearing the
+   * unsaved-work state and completing the quickstart save hint). Declared
+   * before the effects that reference it, including in their dependency
+   * arrays.
+   */
+  const saveDrawingAsPng = useCallback(async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+    const appState = excalidrawAPI.getAppState();
+    const blob = await exportToBlob({
+      elements: getNonDeletedElements(excalidrawAPI.getSceneElements()),
+      appState,
+      files: excalidrawAPI.getFiles(),
+      mimeType: MIME_TYPES.png,
+    });
+    await fileSave(blob, {
+      name: excalidrawAPI.getName() || "excalidraw",
+      extension: "png",
+      description: "PNG image",
+    });
+    markExplicitlySaved();
+    notifyExplicitSave();
+  }, [excalidrawAPI]);
+
   useEffect(() => {
     if (!excalidrawAPI || (!isCollabDisabled && !collabAPI)) {
       return;
@@ -628,13 +659,16 @@ const ExcalidrawWrapper = () => {
         // unsaved work in it, confirm first (UnsavedWorkDialog)
         setUnsavedWorkDialogState({
           isOpen: true,
-          onConfirm: loadSceneFromUrl,
-          onCancel: () => {
-            // put the URL back in sync with the scene still on screen
-            if (event.oldURL) {
-              window.history.replaceState(null, "", event.oldURL);
-            }
-          },
+          onLeave: loadSceneFromUrl,
+          onSave: saveDrawingAsPng,
+          // if the dialog closes without either choice, put the URL back
+          // in sync with the scene still on screen; Leave replaces the
+          // scene (the URL is already correct), Save doesn't touch it
+          onClose: event.oldURL
+            ? () => {
+                window.history.replaceState(null, "", event.oldURL);
+              }
+            : undefined,
         });
       }
     };
@@ -737,6 +771,7 @@ const ExcalidrawWrapper = () => {
     setLangCode,
     loadImages,
     setUnsavedWorkDialogState,
+    saveDrawingAsPng,
   ]);
 
   useEffect(() => {
@@ -751,6 +786,14 @@ const ExcalidrawWrapper = () => {
       ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
+          // The browser's native confirm above is the only thing that can
+          // stop a real tab close. If the user chooses to stay on it, the
+          // styled in-app popup is there for them: Save a PNG copy, or
+          // dismiss. (If they leave, the page dies with the popup.)
+          setUnsavedWorkDialogState({
+            isOpen: true,
+            onSave: saveDrawingAsPng,
+          });
         } else {
           console.warn(
             "preventing unload disabled (VITE_APP_DISABLE_PREVENT_UNLOAD)",
@@ -762,7 +805,7 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI, collabAPI]);
+  }, [excalidrawAPI, collabAPI, setUnsavedWorkDialogState, saveDrawingAsPng]);
 
   useEffect(() => {
     // observe (capture, without preventing) the save/export keyboard
