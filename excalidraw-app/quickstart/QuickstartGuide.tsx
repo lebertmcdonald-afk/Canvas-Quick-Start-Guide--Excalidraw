@@ -124,14 +124,16 @@ const useHintCardTop = (enabled: boolean) => {
 };
 
 /**
- * Is Excalidraw's main menu open? The menu panel (.main-menu, radix
- * DropdownMenu content) only exists in the DOM while open, so presence is
- * the whole check. Watched with a MutationObserver because the save hint's
- * highlight follows the user's progress: menu button first, and the save
- * item inside the menu once it's open.
+ * The save target inside the open main menu, for the save hint's second
+ * stage. The panel (.main-menu, radix dropdown content) only exists in
+ * the DOM while the menu is open, so null means closed. "Save to current
+ * file" (save-button) only renders when a file handle is attached to the
+ * scene -- which a brand-new user, this guide's audience, never has -- so
+ * the fallback is the Export item, which is that user's actual
+ * save-a-copy path. Watched with a MutationObserver like useHintCardTop.
  */
-const useMenuOpen = (enabled: boolean) => {
-  const [isOpen, setIsOpen] = useState(false);
+const useMenuSaveTarget = (enabled: boolean) => {
+  const [target, setTarget] = useState<"file" | "export" | null>(null);
 
   useEffect(() => {
     if (!enabled) {
@@ -139,7 +141,15 @@ const useMenuOpen = (enabled: boolean) => {
     }
 
     const check = () => {
-      setIsOpen(Boolean(document.querySelector(".excalidraw .main-menu")));
+      if (!document.querySelector(".excalidraw .main-menu")) {
+        setTarget(null);
+        return;
+      }
+      setTarget(
+        document.querySelector('.excalidraw [data-testid="save-button"]')
+          ? "file"
+          : "export",
+      );
     };
 
     check();
@@ -150,7 +160,7 @@ const useMenuOpen = (enabled: boolean) => {
     };
   }, [enabled]);
 
-  return isOpen;
+  return target;
 };
 
 /**
@@ -264,10 +274,22 @@ ${HINT_PULSE}
 }
 `;
 
-/** Save hint, stage two: the Save item inside the now-open menu. */
+/** Save hint, stage two: "Save to current file", when a file is attached. */
 const SAVE_BUTTON_HIGHLIGHT_STYLES = `
 ${HINT_PULSE}
 .excalidraw [data-testid="save-button"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
+/**
+ * Save hint, stage two fallback: the Export item. "Save to current file"
+ * only renders with a file handle attached, which brand-new users -- this
+ * guide's audience -- never have, so Export is their save-a-copy path.
+ */
+const EXPORT_BUTTON_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw [data-testid="json-export-button"] {
   animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
 }
 `;
@@ -280,7 +302,7 @@ export const QuickstartGuide: React.FC<{
   onEndGuide: () => void;
 }> = ({ isVisible, optedIn, activeHint, onOptIn, onEndGuide }) => {
   const hintCardTop = useHintCardTop(isVisible);
-  const menuOpen = useMenuOpen(isVisible && activeHint === "save");
+  const menuSaveTarget = useMenuSaveTarget(isVisible && activeHint === "save");
   const positionedOverlayStyle: React.CSSProperties = {
     ...overlayStyle,
     top: hintCardTop,
@@ -367,14 +389,27 @@ export const QuickstartGuide: React.FC<{
 
   if (activeHint === "save") {
     // The last hint walks the actual save path: highlight the menu button
-    // first, then -- once the user opens the menu -- the Save item inside
-    // it. Copy follows the same two stages.
+    // first, then -- once the user opens the menu -- the save item inside
+    // it. Copy follows the same two stages, naming whichever item is
+    // actually highlighted for this user.
+    if (menuSaveTarget === "file") {
+      return hintCard(
+        "quickstart-hint-save",
+        "Now click Save to keep a copy of your drawing.",
+        SAVE_BUTTON_HIGHLIGHT_STYLES,
+      );
+    }
+    if (menuSaveTarget === "export") {
+      return hintCard(
+        "quickstart-hint-save",
+        "Now click Export to save a copy of your drawing.",
+        EXPORT_BUTTON_HIGHLIGHT_STYLES,
+      );
+    }
     return hintCard(
       "quickstart-hint-save",
-      menuOpen
-        ? "Now click Save to keep a copy of your drawing."
-        : "Your drawing auto-saves in this browser. Use the menu to save a copy.",
-      menuOpen ? SAVE_BUTTON_HIGHLIGHT_STYLES : MENU_BUTTON_HIGHLIGHT_STYLES,
+      "Your drawing auto-saves in this browser. Use the menu to save a copy.",
+      MENU_BUTTON_HIGHLIGHT_STYLES,
     );
   }
 

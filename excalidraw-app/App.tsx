@@ -7,7 +7,9 @@ import {
   useEditorInterface,
   ExcalidrawAPIProvider,
   useExcalidrawAPI,
+  exportToBlob,
 } from "@excalidraw/excalidraw";
+import { fileSave } from "@excalidraw/excalidraw/data/filesystem";
 import { trackEvent } from "@excalidraw/excalidraw/analytics";
 import { getDefaultAppState } from "@excalidraw/excalidraw/appState";
 import {
@@ -31,6 +33,7 @@ import {
   resolvablePromise,
   isRunningInIframe,
   isDevEnv,
+  MIME_TYPES,
 } from "@excalidraw/common";
 import polyfill from "@excalidraw/excalidraw/polyfill";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,6 +51,7 @@ import {
   youtubeIcon,
 } from "@excalidraw/excalidraw/components/icons";
 import { isElementLink } from "@excalidraw/element";
+import { getNonDeletedElements } from "@excalidraw/element";
 import {
   bumpElementVersions,
   restoreAppState,
@@ -138,6 +142,7 @@ import {
 } from "./components/UnsavedWorkDialog";
 import {
   hasUnsavedWork,
+  hasUnpersistedWork,
   markExplicitlySaved,
   noteSceneChange,
 } from "./unsavedWork";
@@ -577,6 +582,33 @@ const ExcalidrawWrapper = () => {
     [collabAPI, excalidrawAPI],
   );
 
+  /**
+   * The UnsavedWorkDialog's Save action: exports the current drawing as a
+   * PNG and counts it as the user's explicit save gesture (clearing the
+   * unsaved-work state and completing the quickstart save hint). Declared
+   * before the effects that reference it, including in their dependency
+   * arrays.
+   */
+  const saveDrawingAsPng = useCallback(async () => {
+    if (!excalidrawAPI) {
+      return;
+    }
+    const appState = excalidrawAPI.getAppState();
+    const blob = await exportToBlob({
+      elements: getNonDeletedElements(excalidrawAPI.getSceneElements()),
+      appState,
+      files: excalidrawAPI.getFiles(),
+      mimeType: MIME_TYPES.png,
+    });
+    await fileSave(blob, {
+      name: excalidrawAPI.getName() || "excalidraw",
+      extension: "png",
+      description: "PNG image",
+    });
+    markExplicitlySaved();
+    notifyExplicitSave();
+  }, [excalidrawAPI]);
+
   useEffect(() => {
     if (!excalidrawAPI || (!isCollabDisabled && !collabAPI)) {
       return;
@@ -628,13 +660,16 @@ const ExcalidrawWrapper = () => {
         // unsaved work in it, confirm first (UnsavedWorkDialog)
         setUnsavedWorkDialogState({
           isOpen: true,
-          onConfirm: loadSceneFromUrl,
-          onCancel: () => {
-            // put the URL back in sync with the scene still on screen
-            if (event.oldURL) {
-              window.history.replaceState(null, "", event.oldURL);
-            }
-          },
+          onLeave: loadSceneFromUrl,
+          onSave: saveDrawingAsPng,
+          // if the dialog closes without either choice, put the URL back
+          // in sync with the scene still on screen; Leave replaces the
+          // scene (the URL is already correct), Save doesn't touch it
+          onClose: event.oldURL
+            ? () => {
+                window.history.replaceState(null, "", event.oldURL);
+              }
+            : undefined,
         });
       }
     };
@@ -737,17 +772,24 @@ const ExcalidrawWrapper = () => {
     setLangCode,
     loadImages,
     setUnsavedWorkDialogState,
+    saveDrawingAsPng,
   ]);
 
   useEffect(() => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
       LocalData.flushSave();
 
+      // Only genuine data loss (in-flight file writes, quota-exceeded
+      // scenes) justifies the browser's native confirm -- it's the sole
+      // thing that can stop a real close, but it's also unstyleable and
+      // stacks over the styled Leave/Save popup, so it must never fire
+      // alongside it. Merely-not-explicitly-saved work isn't loss:
+      // localStorage autosave recovers it on reopen, so that case closes
+      // silently and the styled popup remains the alert for the in-app
+      // leave paths (loading a different scene from the URL hash).
       if (
         excalidrawAPI &&
-        hasUnsavedWork(excalidrawAPI.getSceneElements(), {
-          isCollaborating: collabAPI?.isCollaborating() ?? false,
-        })
+        hasUnpersistedWork(excalidrawAPI.getSceneElements())
       ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
@@ -762,7 +804,7 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI, collabAPI]);
+  }, [excalidrawAPI]);
 
   useEffect(() => {
     // observe (capture, without preventing) the save/export keyboard
