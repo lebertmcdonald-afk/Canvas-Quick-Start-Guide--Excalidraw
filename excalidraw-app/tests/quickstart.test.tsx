@@ -463,6 +463,43 @@ describe("quickstart guide behavior (useQuickstartGuide)", () => {
     expect(notNew.markGuideSeen).not.toHaveBeenCalled();
   });
 
+  it("a label flagged remote by a raced creation echo still completes once locally edited", () => {
+    // In a collab room, the local user's just-created label can be flagged
+    // remote on its creation onChange (the room's echo landed first at the
+    // same id+version). Baselineing it as satisfied made the labeling hint
+    // permanently stuck -- the user named the shape and nothing happened.
+    const { result } = renderGuideHook(true);
+    optInAndShowShapeHint(result);
+    act(() =>
+      result.current.notifySceneChange([makeElement("s1", "rectangle")]),
+    );
+
+    const remoteAtCreation = (element: { id: string }) => element.id === "t1";
+    const label = makeLabel("t1", "s1");
+
+    // creation onChange, racing the echo: suppressed, correctly
+    act(() =>
+      result.current.notifySceneChange(
+        [makeElement("s1", "rectangle"), label],
+        { isRemoteElement: remoteAtCreation },
+      ),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual(["shape-tool"]);
+
+    // the user's own typing bumps the version clear of the remote record:
+    // the same label must now complete the hint, not stay swallowed
+    act(() =>
+      result.current.notifySceneChange([
+        makeElement("s1", "rectangle"),
+        makeLabel("t1", "s1"),
+      ]),
+    );
+    expect(appJotaiStore.get(completedHintsAtom)).toEqual([
+      "shape-tool",
+      "labeling",
+    ]);
+  });
+
   it("the user authoring a shape completes the hint on its own, once, and advances to labeling", () => {
     const { result } = renderGuideHook(true);
     optInAndShowShapeHint(result);
