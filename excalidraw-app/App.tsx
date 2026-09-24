@@ -142,6 +142,7 @@ import {
 } from "./components/UnsavedWorkDialog";
 import {
   hasUnsavedWork,
+  hasUnpersistedWork,
   markExplicitlySaved,
   noteSceneChange,
 } from "./unsavedWork";
@@ -778,22 +779,20 @@ const ExcalidrawWrapper = () => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
       LocalData.flushSave();
 
+      // Only genuine data loss (in-flight file writes, quota-exceeded
+      // scenes) justifies the browser's native confirm -- it's the sole
+      // thing that can stop a real close, but it's also unstyleable and
+      // stacks over the styled Leave/Save popup, so it must never fire
+      // alongside it. Merely-not-explicitly-saved work isn't loss:
+      // localStorage autosave recovers it on reopen, so that case closes
+      // silently and the styled popup remains the alert for the in-app
+      // leave paths (loading a different scene from the URL hash).
       if (
         excalidrawAPI &&
-        hasUnsavedWork(excalidrawAPI.getSceneElements(), {
-          isCollaborating: collabAPI?.isCollaborating() ?? false,
-        })
+        hasUnpersistedWork(excalidrawAPI.getSceneElements())
       ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
-          // The browser's native confirm above is the only thing that can
-          // stop a real tab close. If the user chooses to stay on it, the
-          // styled in-app popup is there for them: Save a PNG copy, or
-          // dismiss. (If they leave, the page dies with the popup.)
-          setUnsavedWorkDialogState({
-            isOpen: true,
-            onSave: saveDrawingAsPng,
-          });
         } else {
           console.warn(
             "preventing unload disabled (VITE_APP_DISABLE_PREVENT_UNLOAD)",
@@ -805,7 +804,7 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI, collabAPI, setUnsavedWorkDialogState, saveDrawingAsPng]);
+  }, [excalidrawAPI]);
 
   useEffect(() => {
     // observe (capture, without preventing) the save/export keyboard

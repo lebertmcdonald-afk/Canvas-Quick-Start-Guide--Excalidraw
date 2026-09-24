@@ -37,11 +37,11 @@ export const unsavedWorkDialogStateAtom = atom<UnsavedWorkDialogState>(
 
 /**
  * The styled half of the unsaved-work alert (see unsavedWork.ts for the
- * detection). A real tab close can only ever trigger the browser's native,
- * unstyleable beforeunload confirm first -- that one stays as the hard
- * gate -- and this popup then serves as the in-app follow-up: it opens on
- * the leave attempts we control (loading a different scene from the URL
- * hash), and after a close attempt, once the user has chosen to stay.
+ * detection): the in-app popup for the leave attempts we control --
+ * currently, loading a different scene from the URL hash, which replaces
+ * the scene on screen. The browser's own beforeunload confirm is reserved
+ * for genuine data loss only (see hasUnpersistedWork), so the two never
+ * stack over each other.
  *
  * Two buttons, per spec: Leave on the left, Save on the right -- Save is a
  * filled primary FilledButton (the Share button's own style) and exports

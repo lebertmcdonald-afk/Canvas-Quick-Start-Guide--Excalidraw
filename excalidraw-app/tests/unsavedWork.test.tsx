@@ -12,6 +12,7 @@ import { Provider, appJotaiStore } from "../app-jotai";
 import {
   hasUnsavedExplicitWork,
   hasUnsavedWork,
+  hasUnpersistedWork,
   markExplicitlySaved,
   noteSceneChange,
   resetUnsavedWorkTracking,
@@ -196,6 +197,51 @@ describe("explicit-save tracking (unsaved = user hasn't clicked save)", () => {
       hasUnsavedWork([], {
         fileStorage: makeFileManager(),
         isCollaborating: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("hasUnpersistedWork (the only condition for the native confirm)", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  it("explicitly-unsaved-but-autosaved work is NOT data loss", () => {
+    noteSceneChange([makeElement("a")]);
+    expect(hasUnsavedExplicitWork()).toBe(true);
+    expect(
+      hasUnpersistedWork([makeElement("a")], {
+        fileStorage: makeFileManager(),
+      }),
+    ).toBe(false);
+  });
+
+  it("in-flight file writes and quota exceeded are", async () => {
+    const fileStorage = makeFileManager(
+      () => new Promise(() => {}), // never resolves: save stays in flight
+    );
+    void fileStorage.saveFiles({
+      elements: [makeImageElement("a", "f1")],
+      files: {
+        f1: {
+          id: "f1" as FileId,
+          dataURL: "data:image/png;base64," as DataURL,
+          mimeType: "image/png",
+          created: 1,
+          lastRetrieved: 1,
+          version: 1,
+        },
+      },
+    });
+    expect(
+      hasUnpersistedWork([makeImageElement("a", "f1")], { fileStorage }),
+    ).toBe(true);
+
+    expect(
+      hasUnpersistedWork([], {
+        fileStorage: makeFileManager(),
+        quotaExceeded: true,
       }),
     ).toBe(true);
   });
