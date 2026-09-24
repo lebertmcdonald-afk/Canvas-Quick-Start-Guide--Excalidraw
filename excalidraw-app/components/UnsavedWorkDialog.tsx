@@ -10,15 +10,25 @@ import "./UnsavedWorkDialog.scss";
 
 export type UnsavedWorkDialogState = {
   isOpen: boolean;
-  /** runs when the user chooses to leave despite the warning */
-  onConfirm: () => void;
-  /** runs when the user chooses to stay; the URL should be restored */
-  onCancel?: () => void;
+  /**
+   * Runs when the user chooses Leave. Absent when there is nothing left to
+   * leave to -- the close-page flow only opens this popup after the user
+   * already chose to stay on the browser's own confirm, so its Leave just
+   * dismisses.
+   */
+  onLeave?: () => void;
+  /**
+   * Saves the drawing as a PNG (and marks the work explicitly saved).
+   * Provided by App.tsx, which owns the excalidrawAPI; returning a promise
+   * makes the button show its own loading spinner while it runs.
+   */
+  onSave?: () => void | Promise<void>;
+  /** Runs when the dialog closes without either choice (X / Escape). */
+  onClose?: () => void;
 };
 
 const initialUnsavedWorkDialogState: UnsavedWorkDialogState = {
   isOpen: false,
-  onConfirm: () => {},
 };
 
 export const unsavedWorkDialogStateAtom = atom<UnsavedWorkDialogState>(
@@ -27,16 +37,19 @@ export const unsavedWorkDialogStateAtom = atom<UnsavedWorkDialogState>(
 
 /**
  * The styled half of the unsaved-work alert (see unsavedWork.ts for the
- * detection). Closing the tab itself can only trigger the browser's
- * native, unstyleable beforeunload confirm, so this dialog covers the
- * leave attempts we control -- currently, loading a different scene from
- * the URL hash, which replaces the scene on screen.
+ * detection). A real tab close can only ever trigger the browser's native,
+ * unstyleable beforeunload confirm first -- that one stays as the hard
+ * gate -- and this popup then serves as the in-app follow-up: it opens on
+ * the leave attempts we control (loading a different scene from the URL
+ * hash), and after a close attempt, once the user has chosen to stay.
  *
- * Uses the app's existing Dialog + FilledButton components, matching the
- * OverwriteConfirm "unsaved changes" dialog's look.
+ * Two buttons, per spec: Leave on the left, Save on the right -- Save is a
+ * filled primary FilledButton (the Share button's own style) and exports
+ * the drawing as a PNG. Tooltips on both, via the title attribute: the
+ * FilledButton component doesn't forward one, so each button is wrapped.
  */
 export const UnsavedWorkDialog: React.FC = () => {
-  const { isOpen, onConfirm, onCancel } = useAtomValue(
+  const { isOpen, onLeave, onSave, onClose } = useAtomValue(
     unsavedWorkDialogStateAtom,
   );
   const setDialogState = useSetAtom(unsavedWorkDialogStateAtom);
@@ -45,17 +58,13 @@ export const UnsavedWorkDialog: React.FC = () => {
     return null;
   }
 
-  const close = (action: () => void) => {
+  const close = (after?: () => void) => {
     setDialogState((state) => ({ ...state, isOpen: false }));
-    action();
+    after?.();
   };
 
   return (
-    <Dialog
-      onCloseRequest={() => close(() => onCancel?.())}
-      title={false}
-      size={640}
-    >
+    <Dialog onCloseRequest={() => close(onClose)} title={false} size={640}>
       <div className="UnsavedWorkDialog">
         <h3>You have unsaved changes</h3>
         <div className="UnsavedWorkDialog__Description">
@@ -63,24 +72,39 @@ export const UnsavedWorkDialog: React.FC = () => {
             {alertTriangleIcon}
           </div>
           <div>
-            Some of your work hasn&apos;t finished saving. If you leave now, it
-            may be lost.
+            Your drawing isn&apos;t saved yet. Save a copy, or leave it to this
+            browser&apos;s autosave.
           </div>
         </div>
         <div className="UnsavedWorkDialog__Buttons">
-          <FilledButton
-            variant="outlined"
-            color="danger"
-            size="large"
-            label="Leave anyway"
-            onClick={() => close(onConfirm)}
-          />
-          <FilledButton
-            color="primary"
-            size="large"
-            label="Stay"
-            onClick={() => close(() => onCancel?.())}
-          />
+          <span
+            className="UnsavedWorkDialog__tooltip"
+            data-testid="unsaved-work-leave-tooltip"
+            title="Keep going without saving — your work stays in this browser's autosave"
+          >
+            <FilledButton
+              variant="outlined"
+              color="danger"
+              size="large"
+              label="Leave"
+              onClick={() => close(onLeave)}
+            />
+          </span>
+          <span
+            className="UnsavedWorkDialog__tooltip"
+            data-testid="unsaved-work-save-tooltip"
+            title="Download your drawing as a PNG image"
+          >
+            <FilledButton
+              color="primary"
+              size="large"
+              label="Save"
+              onClick={async () => {
+                await onSave?.();
+                close();
+              }}
+            />
+          </span>
         </div>
       </div>
     </Dialog>

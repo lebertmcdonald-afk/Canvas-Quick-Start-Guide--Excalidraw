@@ -62,21 +62,21 @@ const renderDialog = () =>
     </Provider>,
   );
 
-const openDialog = (onConfirm: () => void, onCancel?: () => void) =>
+const openDialog = (
+  onLeave: () => void = () => {},
+  onSave: () => void | Promise<void> = () => {},
+) =>
   act(() =>
     appJotaiStore.set(unsavedWorkDialogStateAtom, {
       isOpen: true,
-      onConfirm,
-      onCancel,
+      onLeave,
+      onSave,
     }),
   );
 
 const resetState = () => {
   appJotaiStore.set(localStorageQuotaExceededAtom, false);
-  appJotaiStore.set(unsavedWorkDialogStateAtom, {
-    isOpen: false,
-    onConfirm: () => {},
-  });
+  appJotaiStore.set(unsavedWorkDialogStateAtom, { isOpen: false });
   resetUnsavedWorkTracking();
 };
 
@@ -215,50 +215,70 @@ describe("UnsavedWorkDialog", () => {
     expect(document.body).not.toHaveTextContent("You have unsaved changes");
   });
 
-  it("Leave anyway runs onConfirm and closes; Stay runs onCancel and closes", async () => {
+  it("Leave runs onLeave and closes; Save runs onSave and closes", async () => {
     renderDialog();
-    const onConfirm = vi.fn();
-    const onCancel = vi.fn();
+    const onLeave = vi.fn();
+    const onSave = vi.fn();
 
-    openDialog(onConfirm, onCancel);
+    openDialog(onLeave, onSave);
     await waitFor(() => {
       expect(document.body).toHaveTextContent("You have unsaved changes");
     });
 
     fireEvent.click(
       [...document.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("Leave anyway"),
+        b.textContent?.includes("Leave"),
       )!,
     );
-    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    expect(onSave).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(document.body).not.toHaveTextContent("You have unsaved changes");
     });
 
-    openDialog(onConfirm, onCancel);
+    openDialog(onLeave, onSave);
     await waitFor(() => {
       expect(document.body).toHaveTextContent("You have unsaved changes");
     });
     fireEvent.click(
       [...document.querySelectorAll("button")].find((b) =>
-        b.textContent?.includes("Stay"),
+        b.textContent?.includes("Save"),
       )!,
     );
-    expect(onCancel).toHaveBeenCalledTimes(1);
     await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
       expect(document.body).not.toHaveTextContent("You have unsaved changes");
     });
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the app's existing dialog button components", async () => {
+  it("both buttons carry tooltips; Save is the Share-styled primary", async () => {
     renderDialog();
-    openDialog(vi.fn());
+    openDialog();
 
     await waitFor(() => {
-      // FilledButton (ExcButton) is the app's existing button component
-      expect(document.querySelector(".UnsavedWorkDialog .ExcButton")).not.toBe(
-        null,
-      );
+      expect(document.body).toHaveTextContent("You have unsaved changes");
     });
+
+    const leaveTooltip = document.querySelector(
+      '[data-testid="unsaved-work-leave-tooltip"]',
+    )!;
+    expect(leaveTooltip.getAttribute("title")).toContain("autosave");
+
+    const saveTooltip = document.querySelector(
+      '[data-testid="unsaved-work-save-tooltip"]',
+    )!;
+    expect(saveTooltip.getAttribute("title")).toContain("PNG");
+
+    // FilledButton (ExcButton) filled-primary is the Share button's own
+    // style; the Save button inside its tooltip wrapper carries it
+    const saveButton = saveTooltip.querySelector("button")!;
+    expect(saveButton.classList.contains("ExcButton--color-primary")).toBe(
+      true,
+    );
+    expect(saveButton.classList.contains("ExcButton--variant-filled")).toBe(
+      true,
+    );
+    expect(saveButton.textContent).toContain("Save");
   });
 });
