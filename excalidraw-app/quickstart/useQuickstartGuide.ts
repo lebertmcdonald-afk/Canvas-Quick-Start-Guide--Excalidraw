@@ -112,6 +112,8 @@ export const useQuickstartGuide = (
   // so scene detection reads the live values here rather than the closure.
   const activeHintRef = useRef(activeHint);
   activeHintRef.current = activeHint;
+  const isNewUserRef = useRef(isNewUser);
+  isNewUserRef.current = isNewUser;
 
   const guideApplies = (isNewUser === true || forcedVisible) && !ended;
   const isVisible = guideApplies;
@@ -259,12 +261,24 @@ export const useQuickstartGuide = (
     const isRemote = (element: OrderedExcalidrawElement): boolean =>
       meta?.isRemoteElement?.(element) === true;
 
-    if (!guideApplies) {
+    // Decision state comes from the live atoms (and the isNewUser ref),
+    // not this render's closure: Excalidraw can fire onChange before
+    // React re-renders -- e.g. the scene change that completes one hint
+    // and the user's very next gesture can share a stale closure, which
+    // read optedIn/completedHints as they were a gesture ago and silently
+    // dropped completions.
+    const endedNow = appJotaiStore.get(guideEndedAtom);
+    const guideAppliesNow =
+      (isNewUserRef.current === true ||
+        appJotaiStore.get(guideForcedVisibleAtom)) &&
+      !endedNow;
+
+    if (!guideAppliesNow) {
       knownElementIdsRef.current = null;
       return;
     }
 
-    if (!optedIn) {
+    if (!appJotaiStore.get(guideOptedInAtom)) {
       // A collaborator's edit must not dismiss the prompt: P1 is the
       // *local* user starting to draw on their own -- so this only fires
       // once at least one element isn't attributable to a remote write.
@@ -283,7 +297,7 @@ export const useQuickstartGuide = (
     const hintPending =
       completion !== undefined &&
       currentHint !== null &&
-      !completedHints.includes(currentHint);
+      !appJotaiStore.get(completedHintsAtom).includes(currentHint);
     const matchingIds = matchingIdsFor(currentHint, elements);
     const elementById = new Map(
       elements.map((element) => [element.id, element]),
@@ -296,6 +310,22 @@ export const useQuickstartGuide = (
         return element !== undefined && !isRemote(element);
       });
 
+    // Only locally-attributed satisfiers are baselined as "already
+    // done". A remote-attributed one is merely *suppressed for now*:
+    // baselining it made it satisfied forever, so a locally-created
+    // label whose creation onChange raced the room's echo (same id,
+    // same version -- flagged remote) could never complete the hint,
+    // even after the user's own typing bumped its version clear of the
+    // remote record. Left out of the baseline, it stays pending and
+    // completes once it's locally attributable again.
+    const locallySatisfiedIds = (ids: ReadonlySet<string>) =>
+      new Set(
+        [...ids].filter((id) => {
+          const element = elementById.get(id);
+          return element !== undefined && !isRemote(element);
+        }),
+      );
+
     if (knownElementIdsRef.current === null) {
       // First change since detection started: what's already on the canvas
       // predates the guide, so it baselines instead of counting as new --
@@ -305,7 +335,7 @@ export const useQuickstartGuide = (
       knownElementIdsRef.current = new Set(
         elements.map((element) => element.id),
       );
-      satisfiedIdsRef.current = matchingIds;
+      satisfiedIdsRef.current = locallySatisfiedIds(matchingIds);
       if (skipBaselineCompletionRef.current) {
         skipBaselineCompletionRef.current = false;
         return;
@@ -326,7 +356,7 @@ export const useQuickstartGuide = (
       (id) => !previouslySatisfied.has(id),
     );
     knownElementIdsRef.current = new Set(elements.map((element) => element.id));
-    satisfiedIdsRef.current = matchingIds;
+    satisfiedIdsRef.current = locallySatisfiedIds(matchingIds);
     if (hintPending && hasLocalMatch(newlySatisfiedIds)) {
       completeHint(currentHint as HintId);
     }
