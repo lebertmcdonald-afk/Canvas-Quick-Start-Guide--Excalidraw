@@ -39,9 +39,9 @@ export const unsavedWorkDialogStateAtom = atom<UnsavedWorkDialogState>(
  * The styled half of the unsaved-work alert (see unsavedWork.ts for the
  * detection): the in-app popup for the leave attempts we control --
  * currently, loading a different scene from the URL hash, which replaces
- * the scene on screen. The browser's own beforeunload confirm is reserved
- * for genuine data loss only (see hasUnpersistedWork), so the two never
- * stack over each other.
+ * the scene on screen. A real tab close can only ever show the browser's
+ * own beforeunload confirm (App.tsx's preventUnload), so the two alerts
+ * each own their path and never stack over each other.
  *
  * Two buttons, per spec: Leave on the left, Save on the right -- Save is a
  * filled primary FilledButton (the Share button's own style) and exports

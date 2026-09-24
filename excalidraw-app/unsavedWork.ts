@@ -97,29 +97,3 @@ export const hasUnsavedWork = (
     (!isCollaborating && hasUnsavedExplicitWork())
   );
 };
-
-/**
- * Work that would be genuinely LOST if the page died right now: image
- * files whose IndexedDB writes may not commit during unload, or a scene
- * that can't persist at all (quota exceeded). Deliberately excludes the
- * explicit-save-pending signal -- localStorage autosave recovers that
- * work on reopen, so a close there loses nothing.
- *
- * This is the only condition worth the browser's own, unstyleable
- * beforeunload confirm: showing it for merely-not-explicitly-saved work
- * stacked the native alert over the styled Leave/Save popup, which reads
- * as two alarms for one decision.
- */
-export const hasUnpersistedWork = (
-  elements: readonly ExcalidrawElement[],
-  opts: {
-    fileStorage?: FileManager;
-    quotaExceeded?: boolean;
-  } = {},
-) => {
-  const fileStorage = opts.fileStorage ?? LocalData.fileStorage;
-  const quotaExceeded =
-    opts.quotaExceeded ?? appJotaiStore.get(localStorageQuotaExceededAtom);
-
-  return fileStorage.shouldPreventUnload(elements) || quotaExceeded;
-};

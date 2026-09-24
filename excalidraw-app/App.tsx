@@ -142,7 +142,6 @@ import {
 } from "./components/UnsavedWorkDialog";
 import {
   hasUnsavedWork,
-  hasUnpersistedWork,
   markExplicitlySaved,
   noteSceneChange,
 } from "./unsavedWork";
@@ -779,17 +778,19 @@ const ExcalidrawWrapper = () => {
     const unloadHandler = (event: BeforeUnloadEvent) => {
       LocalData.flushSave();
 
-      // Only genuine data loss (in-flight file writes, quota-exceeded
-      // scenes) justifies the browser's native confirm -- it's the sole
-      // thing that can stop a real close, but it's also unstyleable and
-      // stacks over the styled Leave/Save popup, so it must never fire
-      // alongside it. Merely-not-explicitly-saved work isn't loss:
-      // localStorage autosave recovers it on reopen, so that case closes
-      // silently and the styled popup remains the alert for the in-app
-      // leave paths (loading a different scene from the URL hash).
+      // A real tab close can only ever be stopped by the browser's own
+      // beforeunload confirm, so that -- unstyleable as it is -- is the
+      // close-time alert for ALL unsaved work (the user's clarified
+      // semantics: unsaved = hasn't clicked save). The styled Leave/Save
+      // popup never opens from here (it can't beat the teardown anyway,
+      // and showing both stacked read as two alarms for one decision):
+      // it stays the alert for the in-app leave path alone, loading a
+      // different scene from the URL hash.
       if (
         excalidrawAPI &&
-        hasUnpersistedWork(excalidrawAPI.getSceneElements())
+        hasUnsavedWork(excalidrawAPI.getSceneElements(), {
+          isCollaborating: collabAPI?.isCollaborating() ?? false,
+        })
       ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
@@ -804,7 +805,7 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI]);
+  }, [excalidrawAPI, collabAPI]);
 
   useEffect(() => {
     // observe (capture, without preventing) the save/export keyboard
