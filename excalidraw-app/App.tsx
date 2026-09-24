@@ -140,6 +140,7 @@ import {
   UnsavedWorkDialog,
   unsavedWorkDialogStateAtom,
 } from "./components/UnsavedWorkDialog";
+import { SavePathNudge } from "./components/SavePathNudge";
 import {
   hasUnsavedWork,
   markExplicitlySaved,
@@ -430,6 +431,10 @@ const ExcalidrawWrapper = () => {
 
   const [, setShareDialogState] = useAtom(shareDialogStateAtom);
   const [, setUnsavedWorkDialogState] = useAtom(unsavedWorkDialogStateAtom);
+  const [savePathNudgeActive, setSavePathNudgeActive] = useState(false);
+  const endSavePathNudge = useCallback(() => {
+    setSavePathNudgeActive(false);
+  }, []);
   const [collabAPI] = useAtom(collabAPIAtom);
   const [isCollaborating] = useAtomWithInitialValue(isCollaboratingAtom, () => {
     return isCollaborationLink(window.location.href);
@@ -794,6 +799,17 @@ const ExcalidrawWrapper = () => {
       ) {
         if (import.meta.env.VITE_APP_DISABLE_PREVENT_UNLOAD !== "true") {
           preventUnload(event);
+          // The native dialog blocks the main thread while it's up, so
+          // this timeout only ever runs if the user chose Stay (choosing
+          // Leave tears the page down first). Steer the stay toward
+          // actually saving: the menu opens with every save item in it
+          // pulsing (SavePathNudge).
+          window.setTimeout(() => {
+            if (document.visibilityState === "visible") {
+              excalidrawAPI?.updateScene({ appState: { openMenu: "canvas" } });
+              setSavePathNudgeActive(true);
+            }
+          }, 0);
         } else {
           console.warn(
             "preventing unload disabled (VITE_APP_DISABLE_PREVENT_UNLOAD)",
@@ -805,7 +821,7 @@ const ExcalidrawWrapper = () => {
     return () => {
       window.removeEventListener(EVENT.BEFORE_UNLOAD, unloadHandler);
     };
-  }, [excalidrawAPI, collabAPI]);
+  }, [excalidrawAPI, collabAPI, setSavePathNudgeActive]);
 
   useEffect(() => {
     // observe (capture, without preventing) the save/export keyboard
@@ -1223,6 +1239,7 @@ const ExcalidrawWrapper = () => {
         )}
 
         <UnsavedWorkDialog />
+        <SavePathNudge active={savePathNudgeActive} onDone={endSavePathNudge} />
 
         <ShareDialog
           collabAPI={collabAPI}

@@ -124,13 +124,45 @@ const useHintCardTop = (enabled: boolean) => {
 };
 
 /**
+ * Is Excalidraw's main menu open? The panel (.main-menu, radix dropdown
+ * content) only exists in the DOM while open, so presence is the whole
+ * check -- watched with a MutationObserver. Shared by the save hint's
+ * stage-two targeting and the post-stay SavePathNudge.
+ */
+export const useMenuPanelOpen = (enabled: boolean) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
+    const check = () => {
+      setIsOpen(Boolean(document.querySelector(".excalidraw .main-menu")));
+    };
+
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [enabled]);
+
+  return isOpen;
+};
+
+/**
  * The save target inside the open main menu, for the save hint's second
- * stage. The panel (.main-menu, radix dropdown content) only exists in
- * the DOM while the menu is open, so null means closed. "Save to current
- * file" (save-button) only renders when a file handle is attached to the
- * scene -- which a brand-new user, this guide's audience, never has -- so
- * the fallback is the Export item, which is that user's actual
- * save-a-copy path. Watched with a MutationObserver like useHintCardTop.
+ * stage. "Save to current file" (save-button) only renders when a file
+ * handle is attached to the scene -- which a brand-new user, this guide's
+ * audience, never has -- so the fallback is the Export item, which is
+ * that user's actual save-a-copy path.
+ *
+ * Own MutationObserver rather than building on useMenuPanelOpen: the
+ * menu's *contents* can change while it's open (the save item appearing
+ * once a file gets attached), and the target must re-resolve then, not
+ * only on open/close transitions.
  */
 const useMenuSaveTarget = (enabled: boolean) => {
   const [target, setTarget] = useState<"file" | "export" | null>(null);
@@ -279,6 +311,21 @@ ${HINT_PULSE}
  * file situation: a PNG is a valid save-a-copy outcome for everyone.
  */
 const IMAGE_EXPORT_HIGHLIGHT_RULE = `
+.excalidraw [data-testid="image-export-button"] {
+  animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
+}
+`;
+
+/**
+ * The pulse for every save-path item in the open menu at once ("Save to
+ * current file", Export, "Export image..."); selectors for items that
+ * aren't rendered for this user simply match nothing. Used by the
+ * post-stay SavePathNudge.
+ */
+export const SAVE_PATH_HIGHLIGHT_STYLES = `
+${HINT_PULSE}
+.excalidraw [data-testid="save-button"],
+.excalidraw [data-testid="json-export-button"],
 .excalidraw [data-testid="image-export-button"] {
   animation: quickstart-hint-pulse 1.6s ease-in-out infinite;
 }
